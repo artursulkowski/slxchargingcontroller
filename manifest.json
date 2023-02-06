@@ -1,0 +1,16 @@
+{
+  "domain": "slxchargingcontroller",
+  "name": "Slx Charging Controller",
+  "integration_type": "hub",
+  "config_flow": true,
+  "documentation": "https://github.com/artursulkowski/slxchargingcontroller",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": [
+    "@artur.sulkowski"
+  ],
+  "iot_class": "local_push"
+}

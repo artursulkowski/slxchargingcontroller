@@ -1,0 +1,35 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Device is already configured"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "scan_interval": "description for scan interval",
+                    "charge_target": "description for charge target"
+                }
+            }
+        }
+    },
+    "options": {
+        "step":{
+            "init": {
+                "title": "SLX Configuration",
+                "description":"Set Input Entities",
+                "data":{
+                    "battery_capacity": "Battery Capacity(kWh)",
+                    "evse_session_energy": "Charger Session Energy",
+                    "car_soc_level": "Car SOC level(%)",
+                    "evse_plug_connected": "Charger Plug Connected",
+                    "car_soc_update_time": "Car SOC update time"
+                }
+            }
+        }
+    }
+}
