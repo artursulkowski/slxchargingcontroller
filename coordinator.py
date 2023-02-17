@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 import logging
 
@@ -16,7 +16,6 @@ from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
     HassJob,
-    HomeAssistant,
     State,
     callback,
 )
@@ -32,6 +31,8 @@ from .const import (
     CONF_BATTERY_CAPACITY,
     DOMAIN,
 )
+
+from .chargingmanager import SLXChargingManager
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
@@ -52,6 +53,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             CONF_CHARGE_TARGET, DEFAULT_CHARGE_TARGET
         )
 
+        #
+        self.charging_manager = SLXChargingManager(hass, _LOGGER)
         # variables to store enities numbers.
         self.ent_soc_min: int = 20
         self.ent_soc_max: int = 80
@@ -141,6 +144,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         """Handle child updates."""
         _LOGGER.warning("Charger session energy changed")
         _LOGGER.debug(event)
+        # _LOGGER.debug(event.data['new_state'].state)
+        _LOGGER.debug(event.data["new_state"])
+        value = float(event.data["new_state"].state)
+        _LOGGER.debug(value)
 
     @callback
     def callback_charger_plug_connected(self, event: Event) -> None:
@@ -153,6 +160,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         """Handle child updates."""
         _LOGGER.warning("SOC level changed")
         _LOGGER.debug(event)
+        # self.charging_manager.soc_level = event.
         # In case I need to unsubscribe - I can call it:
         # self.unsub_soc_level()
 
@@ -161,20 +169,3 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         """Handle child updates."""
         _LOGGER.warning("SOC update time changed")
         _LOGGER.debug(event)
-
-
-class SLXChargingManager:
-    def __init__(self, hass: HomeAssistant, logger):
-        self.hass = hass
-        self.logger = logger
-
-
-#      _ev_driving_range: float = None
-# def ev_driving_range(self):
-#     return self._ev_driving_range
-
-# @ev_driving_range.setter
-# def ev_driving_range(self, value):
-#     self._ev_driving_range_value = value[0]
-#     self._ev_driving_range_unit = value[1]
-#     self._ev_driving_range = value[0]
