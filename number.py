@@ -1,4 +1,4 @@
-"""Number for Hyundai / Kia Connect integration."""
+"""Number entities for SlxChargingController"""
 from __future__ import annotations
 
 import logging
@@ -17,6 +17,7 @@ from .entity import SlxChgCtrlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+# TODO move to const.py
 SOC_LIMIT_MIN = "slx_soc_limit_min"
 SOC_LIMIT_MAX = "slx_soc_limit_max"
 
