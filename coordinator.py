@@ -55,9 +55,16 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         #
         self.charging_manager = SLXChargingManager(hass, _LOGGER)
+        self.charging_manager.set_energy_estimated_callback(
+            self.callback_energy_estimated
+        )
+
+        bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
+        self.charging_manager.battery_capacity = bat_capacity
         # variables to store enities numbers.
         self.ent_soc_min: int = 20
         self.ent_soc_max: int = 80
+        self.ent_soc_estimated: float = None
 
         self.unsub_openevse_session_energy = None
         current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
@@ -109,7 +116,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=self.scan_interval),
+            # disable
+            # update_interval=timedelta(seconds=self.scan_interval),
         )
 
     async def _async_update_data(self):
@@ -138,6 +146,44 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.debug(value)
 
     #
+    @staticmethod
+    def extract_energy_entity(event_new_state) -> float:
+        """Translates state with energy into kWh"""
+        try:
+            value = float(event_new_state.state)
+        except ValueError:
+            value = None
+        try:
+            unit = event_new_state.attributes["unit_of_measurement"]
+        except Exception:
+            unit = None
+        if value is not None and unit is not None:
+            if unit == "Wh":
+                value = value / 1000
+        return value
+
+    @staticmethod
+    def extract_bool_state(event_new_state) -> bool:
+        try:
+            state_text = event_new_state.state
+            d = {"off": False, "on": True}
+            if state_text in d:
+                value = d[state_text]
+            else:
+                value = None
+        except Exception:
+            value = None
+        return value
+
+    @callback
+    def callback_energy_estimated(self, energy: float) -> None:
+        _LOGGER.warning("CALLBACKED ENERGY ESTIMATED! ")
+        _LOGGER.warning(energy)
+        self.ent_soc_estimated = energy
+        #   ======= HERE I NEED TO FIND A WAY TO PUT AN REQUEST ON THE QUEUE!
+        self.async_set_updated_data("testdata")
+
+    # await self.async_request_refresh()  # ????
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:
@@ -146,20 +192,28 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.debug(event)
         # _LOGGER.debug(event.data['new_state'].state)
         _LOGGER.debug(event.data["new_state"])
-        value = float(event.data["new_state"].state)
-        _LOGGER.debug(value)
+        value = self.extract_energy_entity(event.data["new_state"])
+        self.charging_manager.add_charger_energy(value, event.time_fired)
 
     @callback
     def callback_charger_plug_connected(self, event: Event) -> None:
         """Handle child updates."""
-        _LOGGER.warning("Charger plug connected")
-        _LOGGER.debug(event)
+        _LOGGER.debug("Charger plug changed")
+        value = self.extract_bool_state(event.data["new_state"])
+        self.charging_manager.plug_status = value
 
     @callback
     def callback_soc_level(self, event: Event) -> None:
         """Handle child updates."""
         _LOGGER.warning("SOC level changed")
         _LOGGER.debug(event)
+
+        try:
+            value = float(event.data["new_state"].state)
+        except ValueError:
+            value = None
+        self.charging_manager.soc_level = value
+
         # self.charging_manager.soc_level = event.
         # In case I need to unsubscribe - I can call it:
         # self.unsub_soc_level()
