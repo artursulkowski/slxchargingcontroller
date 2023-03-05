@@ -26,18 +26,17 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    BATTERY_ENERGY_ESTIMATION,
+    BATTERY_SOC_ESTIMATION,
+    CHARGING_SESSION_DURATION,
+    REQUEST_SOC_UPDATE,
+)
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
 
 _LOGGER = logging.getLogger(__name__)
-
-# these definitions are also related to attributes of charging manager
-# TODO move these definitions to const.py
-BATTERY_ENERGY_ESTIMATION = "bat_energy_estimated"
-BATTERY_SOC_ESTIMATION = "bat_soc_estimated"
-CHARGING_SESSION_DURATION = "charging_session_duration"
-REQUEST_SOC_UPDATE = "request_soc_update"
 
 # TODO - additional charging status for now we will skip it or set this as bool. but there SensorDeviceClass.ENUM which I can use.
 # CHARGING_STATUS = "charging_status"
@@ -111,13 +110,12 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
         self._attr_should_poll = False
         self._manager = coordinator.charging_manager
         attribute_name: str = f"_attr_{self._key}"
-        _LOGGER.warning(f"Checking if {attribute_name} exists")
         if hasattr(self._manager, attribute_name):
-            _LOGGER.warning("Cool - it exists")
+            _LOGGER.debug("Cool %s exists", attribute_name)
         else:
-            # Mark that attribute doesn't exist - useful for development when not all properies are defined yet.
+            # Log non-existing attribute. Useful for WIP when not all properies are defined yet.
             self._attr_available = False
-            _LOGGER.warning("Nope - do not exist")
+            _LOGGER.warning("Attribute %s do not exist", attribute_name)
 
     # Just a note - "native_value" is required property - so I need to implement it!
     # In first version we keep it simple and state is storing only native value (no attributes)
@@ -139,9 +137,10 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
             self._attr_state = getattr(self._manager, attribute_name)
             self.async_write_ha_state()
         else:
-            _LOGGER.warning(f"Attribute:{attribute_name} do not exist")
+            _LOGGER.warning("Attribute: %s do not exist", attribute_name)
 
+    # TODO that precions set doesn't work. To be changed.
     # that is optionally property of entity. To check if this is used and working.
     @property
-    def suggested_display_precision(self) -> int:
+    def native_precision(self) -> int:
         return 2

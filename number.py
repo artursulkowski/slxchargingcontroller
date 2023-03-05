@@ -10,16 +10,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    SOC_LIMIT_MIN,
+    SOC_LIMIT_MAX,
+)
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
 
-
 _LOGGER = logging.getLogger(__name__)
-
-# TODO move to const.py
-SOC_LIMIT_MIN = "slx_soc_limit_min"
-SOC_LIMIT_MAX = "slx_soc_limit_max"
 
 NUMBER_DESCRIPTIONS: Final[tuple[NumberEntityDescription, ...]] = (
     NumberEntityDescription(
