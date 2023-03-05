@@ -64,7 +64,6 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         # variables to store enities numbers.
         self.ent_soc_min: int = 20
         self.ent_soc_max: int = 80
-        self.ent_soc_estimated: float = None
 
         self.unsub_openevse_session_energy = None
         current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
@@ -177,20 +176,15 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     @callback
     def callback_energy_estimated(self, energy: float) -> None:
-        _LOGGER.warning("CALLBACKED ENERGY ESTIMATED! ")
-        _LOGGER.warning(energy)
-        self.ent_soc_estimated = energy
-        #   ======= HERE I NEED TO FIND A WAY TO PUT AN REQUEST ON THE QUEUE!
+        """Callback used to inform that new battery energy is estimated"""
+        # Passed data is not used - so pass just a useless string
         self.async_set_updated_data("testdata")
-
-    # await self.async_request_refresh()  # ????
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:
         """Handle child updates."""
         _LOGGER.warning("Charger session energy changed")
         _LOGGER.debug(event)
-        # _LOGGER.debug(event.data['new_state'].state)
         _LOGGER.debug(event.data["new_state"])
         value = self.extract_energy_entity(event.data["new_state"])
         self.charging_manager.add_charger_energy(value, event.time_fired)
@@ -214,12 +208,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             value = None
         self.charging_manager.soc_level = value
 
-        # self.charging_manager.soc_level = event.
-        # In case I need to unsubscribe - I can call it:
-        # self.unsub_soc_level()
-
     @callback
     def callback_soc_update(self, event: Event) -> None:
-        """Handle child updates."""
-        _LOGGER.warning("SOC update time changed")
+        """Handle SOC updated time"""
+        _LOGGER.debug("SOC update time changed")
         _LOGGER.debug(event)

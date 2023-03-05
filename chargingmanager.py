@@ -24,7 +24,14 @@ class SLXChargingManager:
 
         # calculated values
         # self._energy_measured: float | None = None
-        self._energy_estimated: float = None
+        self._attr_bat_energy_estimated: float = None
+        self._attr_bat_soc_estimated: float = None
+        self._attr_charging_session_duration: int = None
+        self._attr_request_soc_update: int = 0
+
+        # not exposed yet
+        self._attr_charging_active: bool = False
+        self._time_of_start_charging: datetime = None
 
         self._callback_energy_estimated: Callable[[float]] = None
 
@@ -38,6 +45,12 @@ class SLXChargingManager:
     @plug_status.setter
     def plug_status(self, new_plug_status: bool):
         # TODO - add start of the session
+        if self._plug_status == new_plug_status:
+            return
+        if new_plug_status is True:
+            self.started_charging()
+        elif new_plug_status is False:
+            self.stopped_charging()
         self._plug_status = new_plug_status
 
     @property
@@ -82,13 +95,15 @@ class SLXChargingManager:
 
         # this is incorrect algorithm once SOC will be updated during a charging session.
 
-        self._energy_estimated = (
+        self._attr_bat_energy_estimated = (
             self._soc_level / 100.0
         ) * self._battery_capacity + self._charger_energy
-        self.logger.warning("HERE - call energy callback")
-        self.logger.warning(self._energy_estimated)
+        self._attr_bat_soc_estimated = (
+            self._attr_bat_energy_estimated * 100 / self.battery_capacity
+        )
         if self._callback_energy_estimated is not None:
-            self._callback_energy_estimated(self._energy_estimated)
+            # passing estimated energy to callback - however - this values is not used directly (to be removed)
+            self._callback_energy_estimated(self._attr_bat_energy_estimated)
 
     def has_enough_info(self) -> bool:
         if self._soc_level is None:
@@ -100,13 +115,19 @@ class SLXChargingManager:
             return False
         return True
 
+    def started_charging(self):
+        """called when charging has started (plug connected)"""
+        self.logger.debug("Charging started")
+        self._attr_charging_active = True
 
-#      _ev_driving_range: float = None
-# def ev_driving_range(self):
-#     return self._ev_driving_range
+        ## gather a number of data related to charging session
+        # TODO - should this be combined into dataclass?
+        self._time_of_start_charging = datetime.now()
+        # do not store charging session energy yet! This should be updated once new value is received!
 
-# @ev_driving_range.setter
-# def ev_driving_range(self, value):
-#     self._ev_driving_range_value = value[0]
-#     self._ev_driving_range_unit = value[1]
-#     self._ev_driving_range = value[0]
+    def stopped_charging(self):
+        """called when charging has stoped (plug disconnected)"""
+        self.logger.debug("Charging stopped")
+        self._attr_charging_active = False
+
+        # TODO - prepare summary of charging session?
