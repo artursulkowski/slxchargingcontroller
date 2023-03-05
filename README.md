@@ -11,7 +11,7 @@ Currently this isn't fully functional integration.
 
 # Technical design
 Integration is using [entities](https://developers.home-assistant.io/docs/core/entity/) already registered in HA to obtain information about EV battery SOC, current charging status.
-At intergration's configuration user can select input entities which are fitting
+At intergration's configuration user can select input entities which are fitting required input data.
 
 Why use entities as intergration's input?
 * Very flexible solution - can connect to multiple other integrations already exisiting in the system.
