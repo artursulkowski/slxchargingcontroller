@@ -24,7 +24,8 @@ class SLXChargingManager:
 
         # calculated values
         # self._energy_measured: float | None = None
-        self._energy_estimated: float = None
+        self._attr_bat_energy_estimated: float = None
+        self._attr_bat_soc_estimated: float = None
 
         self._callback_energy_estimated: Callable[[float]] = None
 
@@ -82,13 +83,15 @@ class SLXChargingManager:
 
         # this is incorrect algorithm once SOC will be updated during a charging session.
 
-        self._energy_estimated = (
+        self._attr_bat_energy_estimated = (
             self._soc_level / 100.0
         ) * self._battery_capacity + self._charger_energy
-        self.logger.warning("HERE - call energy callback")
-        self.logger.warning(self._energy_estimated)
+        self._attr_bat_soc_estimated = (
+            self._attr_bat_energy_estimated * 100 / self.battery_capacity
+        )
         if self._callback_energy_estimated is not None:
-            self._callback_energy_estimated(self._energy_estimated)
+            # passing estimated energy to callback - however - this values is not used directly (to be removed)
+            self._callback_energy_estimated(self._attr_bat_energy_estimated)
 
     def has_enough_info(self) -> bool:
         if self._soc_level is None:

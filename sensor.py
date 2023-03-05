@@ -16,14 +16,11 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 
-
 from homeassistant.const import (
     PERCENTAGE,
-    TIME_MINUTES,
-    ENERGY_WATT_HOUR,
-    ENERGY_KILO_WATT_HOUR,
+    UnitOfTime,
+    UnitOfEnergy,
 )
-
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -35,7 +32,18 @@ from .entity import SlxChgCtrlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-BATTERY_ENERGY_ESTIMATION = "slx_battery_estimation"
+# these definitions are also related to attributes of charging manager
+# TODO move these definitions to const.py
+BATTERY_ENERGY_ESTIMATION = "bat_energy_estimated"
+BATTERY_SOC_ESTIMATION = "bat_soc_estimated"
+CHARGING_SESSION_DURATION = "charging_session_duration"
+REQUEST_SOC_UPDATE = "request_soc_update"
+
+# TODO - additional charging status for now we will skip it or set this as bool. but there SensorDeviceClass.ENUM which I can use.
+# CHARGING_STATUS = "charging_status"
+
+# sensors  types: https://developers.home-assistant.io/docs/core/entity/sensor/
+# mdi icons: https://pictogrammers.com/library/mdi/
 
 SENSOR_DESCRIPTIONS: Final[tuple[SensorEntityDescription, ...]] = (
     SensorEntityDescription(
@@ -43,7 +51,29 @@ SENSOR_DESCRIPTIONS: Final[tuple[SensorEntityDescription, ...]] = (
         name="Battery Energy Estimation",
         icon="mdi:lightning-bolt",
         device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=ENERGY_KILO_WATT_HOUR,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    ),
+    SensorEntityDescription(
+        key=BATTERY_SOC_ESTIMATION,
+        name="Battery SOC Estimation",
+        icon="mdi:battery-charging",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+    ),
+    SensorEntityDescription(
+        key=CHARGING_SESSION_DURATION,
+        name="Charging Session Duration",
+        icon="mdi:battery-clock",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+    ),
+    # I cannot find a proper device and entity units (pure integer). Lets re-use percentage despite the fact that it can be a little bit confusing.
+    SensorEntityDescription(
+        key=REQUEST_SOC_UPDATE,
+        name="Request SOC Update",
+        icon="mdi:battery-sync",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
     ),
 )
 
@@ -78,36 +108,40 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
         self._attr_icon = self._description.icon
         self._attr_name = f"{self._description.name}"
         self._attr_device_class = self._description.device_class
+        self._attr_should_poll = False
+        self._manager = coordinator.charging_manager
+        attribute_name: str = f"_attr_{self._key}"
+        _LOGGER.warning(f"Checking if {attribute_name} exists")
+        if hasattr(self._manager, attribute_name):
+            _LOGGER.warning("Cool - it exists")
+        else:
+            # Mark that attribute doesn't exist - useful for development when not all properies are defined yet.
+            self._attr_available = False
+            _LOGGER.warning("Nope - do not exist")
 
+    # Just a note - "native_value" is required property - so I need to implement it!
+    # In first version we keep it simple and state is storing only native value (no attributes)
     @property
     def native_value(self):
-        """Return the value reported by the sensor."""
-        _LOGGER.warning("Getting a native value!")
-        # return getattr(self.vehicle, self._key)  <= this will be the more efficient way in case I have more information.
-        if self._key == BATTERY_ENERGY_ESTIMATION:
-            return self.coordinator.ent_soc_estimated
-        else:
-            return 0
+        return self._attr_state
 
     @property
     def native_unit_of_measurement(self):
         """Return the unit the value was reported in by the sensor"""
         return self._description.native_unit_of_measurement
 
-    # TODO - check how this callback can be connected to coordinator
-    # /workspaces/core/homeassistant/components/xiaomi_miio/sensor.py - look for refence.
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         _LOGGER.warning("Coordinator is updated!!")
-        self._attr_state = self.coordinator.ent_soc_estimated
-        # here is an example of nicer structure of getting different entity states from
-        # self._attr_is_on = self.coordinator.data[self.idx]["state"]
-        self.async_write_ha_state()
+        attribute_name = f"_attr_{self._key}"
+        if self._attr_available:
+            self._attr_state = getattr(self._manager, attribute_name)
+            self.async_write_ha_state()
+        else:
+            _LOGGER.warning(f"Attribute:{attribute_name} do not exist")
 
-    async def async_update(self) -> None:
-        _LOGGER.warning("SLX Sensor: async update")
-
+    # that is optionally property of entity. To check if this is used and working.
     @property
-    def available(self):
-        return True
+    def suggested_display_precision(self) -> int:
+        return 2
