@@ -58,6 +58,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.set_energy_estimated_callback(
             self.callback_energy_estimated
         )
+        self.charging_manager.set_soc_requested_callback(self.callback_soc_requested)
 
         bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
         self.charging_manager.battery_capacity = bat_capacity
@@ -181,6 +182,11 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.async_set_updated_data("testdata")
 
     @callback
+    def callback_soc_requested(self, request_counter: int) -> None:
+        _LOGGER.debug("SOC Request number %d", request_counter)
+        # TODO add requesting SOC update
+
+    @callback
     def callback_charger_session_energy(self, event: Event) -> None:
         """Handle child updates."""
         _LOGGER.warning("Charger session energy changed")
@@ -206,7 +212,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             value = float(event.data["new_state"].state)
         except ValueError:
             value = None
-        self.charging_manager.soc_level = value
+        self.charging_manager.set_soc_level(value)
 
     @callback
     def callback_soc_update(self, event: Event) -> None:
