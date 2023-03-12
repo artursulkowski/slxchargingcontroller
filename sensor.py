@@ -139,7 +139,7 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
         else:
             _LOGGER.warning("Attribute: %s do not exist", attribute_name)
 
-    # TODO that precions set doesn't work. To be changed.
+    # TODO that prevision setting doesn't work. To be changed.
     # that is optionally property of entity. To check if this is used and working.
     @property
     def native_precision(self) -> int:
