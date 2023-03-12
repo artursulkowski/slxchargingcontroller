@@ -5,10 +5,11 @@ from homeassistant.helpers.event import async_call_later
 from datetime import timedelta, datetime
 from collections.abc import Callable
 from enum import Enum
+from bisect import bisect_left
 
-SOC_REQUEST_TIMEOUT: int = 20  # seconds
-
+SOC_REQUEST_TIMEOUT: int = 120  # seconds
 NEXT_SOC_REQUEST_UPDATE: int = 60  # minutes
+CHARGING_EFFICIENCY: float = 0.80  # assumed efficiency of charging.
 
 
 class CarConnectedStates(Enum):
@@ -23,21 +24,86 @@ class CarConnectedStates(Enum):
         return self.value
 
 
-# class SessionEnergy
-# TODO  create a class to store session energy
-# Gather timestamps and information about session energy.
-# calculate session energy for the
-# High level cases:
-# Gather session energy. Clear session energy.
-# When provided with SOC update:
-# - store SOC Value and it's time.
-# - check if we can identify session energy for the moment of SOC Update. If we can:
-#    - store SessionEnergy value for the moment of SOC Update.
-# CalculateAddedSessionEnergy
-#  - on top of SOC Update.
-# Future use cases:
-# Help calculate energy loses.
-# Help calculate session summary?
+class SlxEnergyTracker:
+    """Class for tracking energy transferred during charging session
+
+    Prepare more detailed description using https://peps.python.org/pep-0257/
+    """
+
+    def __init__(self, logger):
+        self.logger = logger
+        self._session_energy_history: list[tuple[datetime, float]] = []
+        self._soc_information: tuple[datetime, float] = (None, None)
+        self._session_energy_at_soc: float = None
+
+    def clear_history(self):
+        self._session_energy_history.clear()
+        self._session_energy_at_soc = None
+
+    def add_entry(self, new_session_energy: float) -> bool:
+        self._session_energy_history.append((datetime.now(), new_session_energy))
+        return self.calculate_estimated_session()
+
+    def update_soc(self, new_time: datetime, soc_level: float) -> bool:
+        self._soc_information = (new_time, soc_level)
+        return self.calculate_estimated_session()
+
+    def calculate_estimated_session(self) -> bool:
+        # few conditions need to be met..
+        length_of_history = len(self._session_energy_history)
+        if length_of_history < 2:
+            return False
+        if self._soc_information[0] is None:
+            return False
+        index: int = -1
+        for i in range(length_of_history):
+            if self._session_energy_history[i][0] >= self._soc_information[0]:
+                index = i
+                break
+        if index <= 0:
+            return False
+
+        lower_value = self._session_energy_history[index - 1]
+        higher_value = self._session_energy_history[index]
+
+        total_diff: timedelta = higher_value[0] - lower_value[0]
+        partial_diff: timedelta = self._soc_information[0] - lower_value[0]
+        factor: float = partial_diff.seconds / total_diff.seconds
+        self._session_energy_at_soc = lower_value[1] + factor * (
+            higher_value[1] - lower_value[1]
+        )
+        return True
+
+    def get_added_energy(self) -> float:
+        """Returns energy added since SOC was checked"""
+        if self._session_energy_at_soc is None:
+            return None
+        history_len = len(self._session_energy_history)
+        if history_len == 0:
+            return None
+
+        added_energy: float = (
+            self._session_energy_history[history_len - 1][1]
+            - self._session_energy_at_soc
+        )
+        return added_energy
+
+    # def get_stored_soc(self) -> tuple(datetime,float):
+    def get_stored_soc(self) -> float:
+        return self._soc_information[1]
+
+    # Version with bisect_left will be usable after switching to newer HA version (python 3.10)
+    # For now I will use very primitive search)
+    # def calculate_estimated_session(self) -> bool:
+    #     # few conditions need to be met..
+    #     if len(self._session_energy_history) < 2:
+    #         return False
+    #     index = bisect_left(
+    #         self._session_energy_history,
+    #         self._soc_information,
+    #         key=extract_datetime,
+    #         # key=lambda item: item[0],
+    #     )
 
 
 class SlxTimer:
@@ -82,14 +148,10 @@ class SLXChargingManager:
         self.hass = hass
         self.logger = logger
 
+        self._energy_tracker = SlxEnergyTracker(self.logger)
+
         # status when car connected
         self._car_connected_status: CarConnectedStates = None
-
-        # variable during charging process
-        self._soc_level: float = None
-        self._soc_update: datetime = None
-        self._charger_energy: float = None
-        self._charger_energy_time: datetime = None
         self._plug_status: bool = None
 
         # configs
@@ -100,8 +162,6 @@ class SLXChargingManager:
         self._attr_bat_soc_estimated: float = None
         self._attr_charging_session_duration: int = None
         self._attr_request_soc_update: int = 0
-
-        self._session_energy_history: list[tuple[datetime, float]] = []
 
         # not exposed yet
         self._attr_charging_active: bool = False
@@ -159,42 +219,34 @@ class SLXChargingManager:
             return
 
         self.timer_soc_request_timeout.cancel_timer()
-        self._soc_level = new_soc_level
-        if new_soc_update is not None:
-            self._soc_update = new_soc_level
-        else:
-            self._soc_update = datetime.now()
+
+        soc_update_time = new_soc_update
+        if soc_update_time is None:
+            soc_update_time = datetime.now()
+
+        self._energy_tracker.update_soc(soc_update_time, new_soc_level)
         self.timer_next_soc_request.schedule_timer()
 
-    @property
-    def charger_energy(self):
-        return self._charger_energy
-
     def add_charger_energy(self, new_charger_energy: float, new_time: datetime = None):
-        self._charger_energy = new_charger_energy
-        if self._charger_energy is not None:
-            self.recalculate_energy()
-        self._charger_energy_time = new_time
-
-    @charger_energy.setter
-    def charger_energy(self, new_charger_energy: float):
-        # in more advanced version we will be adding
-        if self._attr_charging_active is True:
-            self._session_energy_history.append((datetime.now(), new_charger_energy))
-            self._charger_energy = new_charger_energy
-        # This will require a change. How to calculate energy after car is disconnected.
-        if self._charger_energy is not None:
+        # Ignore charger information if car is not connected
+        if self._attr_charging_active is not True:
+            return
+        can_calculate: bool = self._energy_tracker.add_entry(new_charger_energy)
+        if can_calculate is True:
             self.recalculate_energy()
 
     def recalculate_energy(self):
-        if not self.has_enough_info():
-            return None
+        added_energy = self._energy_tracker.get_added_energy()
+        if added_energy is None:
+            return False
 
-        # this is incorrect algorithm once SOC will be updated during a charging session.
+        soc_checked = self._energy_tracker.get_stored_soc()
+        if soc_checked is None:
+            return False
 
         self._attr_bat_energy_estimated = (
-            self._soc_level / 100.0
-        ) * self._battery_capacity + self._charger_energy
+            soc_checked / 100.0
+        ) * self._battery_capacity + added_energy * CHARGING_EFFICIENCY
         self._attr_bat_soc_estimated = (
             self._attr_bat_energy_estimated * 100 / self.battery_capacity
         )
@@ -202,21 +254,14 @@ class SLXChargingManager:
             # passing estimated energy to callback - however - this values is not used directly (to be removed)
             self._callback_energy_estimated(self._attr_bat_energy_estimated)
 
-    def has_enough_info(self) -> bool:
-        if self._soc_level is None:
-            return False
-        if self._charger_energy is None:
-            return False
-        return True
-
     def plug_connected(self):
         """called when plug is connected"""
         self.logger.debug("Charging started")
         self._attr_charging_active = True
         self._car_connected_status = CarConnectedStates.ramping_up
-        self._session_energy_history.clear()
+        self._energy_tracker.clear_history()
 
-        # Request BAT Soc Update
+        # Request Bat SOC Update
         self.request_bat_soc_update()
 
         self._time_of_start_charging = datetime.now()
