@@ -7,10 +7,17 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant, callback, State, async_get_hass
+from homeassistant.core import (
+    HomeAssistant,
+    callback,
+    State,
+    async_get_hass,
+    ServiceRegistry,
+)
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry
+from homeassistant.helpers.service import async_get_all_descriptions
 
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -47,6 +54,8 @@ from .const import (
     CONF_CAR_SOC_LEVEL,
     CONF_CAR_SOC_UPDATE_TIME,
 )
+
+import json
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -217,6 +226,37 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None) -> FlowResult:
         """controls step of configuration"""
+
+        # Key: kia_uvo
+        #     "force_update": {
+        #     "name": "",
+        #     "description": "Force your vehicle to update its data. All vehicles on the same account as the vehicle selected will be updated.",
+        #     "fields": {
+        #         "device_id": {
+        #             "name": "Vehicle",
+        #             "description": "Target vehicle",
+        #             "required": false,
+        #             "selector": {
+        #                 "device": {
+        #                     "integration": "kia_uvo"
+        #                 }
+        #             }
+        #         }
+        #     }
+        # },
+        descriptions = await async_get_all_descriptions(self.hass)
+        my_integration: str = "kia_uvo"
+        if my_integration in descriptions:
+            json_string = json.dumps(descriptions[my_integration])
+            _LOGGER.debug(json_string)
+
+        # LOGGING ALL SERVICES
+        # _LOGGER.debug(descriptions)
+        # for key in descriptions:
+        #     _LOGGER.warning("Key: %s", key)
+        #     json_string = json.dumps(descriptions[key])
+        #     _LOGGER.debug(json_string)
+
         if user_input is not None:
             return self.async_create_entry(
                 title=self.config_entry.title, data=user_input
@@ -244,7 +284,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
     def find_entities_of_device_type(
         self, hass: HomeAssistant, domain: str, dev_classes: set(str)
     ) -> dict[str, Any]:
-        """Finds HA entities with specitic unit of measurement"""
+        """Finds HA entities with specific unit of measurement"""
         output_dict = {}
         for state in hass.states.async_all():
             entity_id = state.entity_id

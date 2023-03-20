@@ -7,6 +7,9 @@ from collections.abc import Callable
 from enum import Enum
 from bisect import bisect_left
 
+import homeassistant.util.dt as dt_util
+
+
 SOC_REQUEST_TIMEOUT: int = 120  # seconds
 NEXT_SOC_REQUEST_UPDATE: int = 60  # minutes
 CHARGING_EFFICIENCY: float = 0.80  # assumed efficiency of charging.
@@ -41,7 +44,7 @@ class SlxEnergyTracker:
         self._session_energy_at_soc = None
 
     def add_entry(self, new_session_energy: float) -> bool:
-        self._session_energy_history.append((datetime.now(), new_session_energy))
+        self._session_energy_history.append((dt_util.utcnow(), new_session_energy))
         return self.calculate_estimated_session()
 
     def update_soc(self, new_time: datetime, soc_level: float) -> bool:
@@ -222,7 +225,7 @@ class SLXChargingManager:
 
         soc_update_time = new_soc_update
         if soc_update_time is None:
-            soc_update_time = datetime.now()
+            soc_update_time = dt_util.utcnow()
 
         self._energy_tracker.update_soc(soc_update_time, new_soc_level)
         self.timer_next_soc_request.schedule_timer()
@@ -264,7 +267,7 @@ class SLXChargingManager:
         # Request Bat SOC Update
         self.request_bat_soc_update()
 
-        self._time_of_start_charging = datetime.now()
+        self._time_of_start_charging = dt_util.utcnow()
 
     def plug_disconnected(self):
         """called when plug got disconnected"""
