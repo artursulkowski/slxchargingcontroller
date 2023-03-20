@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta, datetime
 
 import logging
+import asyncio
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -32,13 +33,18 @@ from .const import (
     DOMAIN,
 )
 
-from .chargingmanager import SLXChargingManager
+from .chargingmanager import SLXChargingManager, SlxTimer
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
 from homeassistant.helpers.event import async_track_state_change_event
 
+import homeassistant.util.dt as dt_util
+
+
 _LOGGER = logging.getLogger(__name__)
+
+DELAYED_SOC_READING: int = 5  # seconds
 
 
 class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
@@ -90,6 +96,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 self.callback_charger_plug_connected,
             )
 
+        self._received_soc_level: float = None
+        self._received_soc_update: datetime = None
+
         self.unsub_soc_level = None
         current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
         if current_soc_level != "":
@@ -111,6 +120,17 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 current_soc_update,
                 self.callback_soc_update,
             )
+
+        self._delay_soc_update: bool = False
+        if self.unsub_soc_update is not None and self.unsub_soc_level is not None:
+            self._delay_soc_update = True
+
+        self._timer_read_soc = SlxTimer(
+            hass,
+            _LOGGER,
+            timedelta(seconds=DELAYED_SOC_READING),
+            self.callback_soc_delayed,
+        )
 
         super().__init__(
             hass,
@@ -184,7 +204,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     @callback
     def callback_soc_requested(self, request_counter: int) -> None:
         _LOGGER.debug("SOC Request number %d", request_counter)
-        # TODO add requesting SOC update
+        # TODO - now it is just hardcoded service. Later it should be set by configuration
+        self.hass.async_add_executor_job(
+            self.hass.services.call, "kia_uvo", "force_update", {}
+        )
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:
@@ -212,10 +235,49 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             value = float(event.data["new_state"].state)
         except ValueError:
             value = None
-        self.charging_manager.set_soc_level(value)
+
+        self._received_soc_level = value
+
+        if self._delay_soc_update is False:
+            self.charging_manager.set_soc_level(value)
 
     @callback
     def callback_soc_update(self, event: Event) -> None:
         """Handle SOC updated time"""
         _LOGGER.debug("SOC update time changed")
         _LOGGER.debug(event)
+
+        try:
+            state_value = event.data["new_state"].state
+            _LOGGER.debug(state_value)
+            value = dt_util.as_utc(dt_util.parse_datetime(state_value))
+            # value = datetime.fromisoformat(state_value)
+        except ValueError:
+            value = None
+
+        if value is None:
+            return
+        self._received_soc_update = value
+        if self._delay_soc_update:
+            self._timer_read_soc.schedule_timer()
+
+    @callback
+    def callback_soc_delayed(self, _) -> None:
+        _LOGGER.debug("Delayed soc reading")
+        # Check if we have both values correct
+        if self._received_soc_level is None:
+            return
+        if self._received_soc_update is None:
+            return
+
+        # call
+
+        _LOGGER.debug(
+            "Passing SOC information, level %d , time %s",
+            self._received_soc_level,
+            self._received_soc_update,
+        )
+
+        self.charging_manager.set_soc_level(
+            self._received_soc_level, self._received_soc_update
+        )
