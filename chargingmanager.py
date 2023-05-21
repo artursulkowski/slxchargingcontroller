@@ -1,6 +1,6 @@
 """ module for charing manager"""
 
-from homeassistant.core import HomeAssistant, callback, CALLBACK_TYPE
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 from datetime import timedelta, datetime
 from collections.abc import Callable
@@ -170,8 +170,8 @@ class SLXChargingManager:
         self._attr_charging_active: bool = False
         self._time_of_start_charging: datetime = None
 
-        self._callback_energy_estimated: Callable[[float]] = None
-        self._callback_soc_requested: Callable[[int]] = None
+        self._callback_energy_estimated: Callable[[float], None] = None
+        self._callback_soc_requested: Callable[[int], None] = None
 
         # timers for controller
         self.timer_soc_request_timeout = SlxTimer(
@@ -188,10 +188,10 @@ class SLXChargingManager:
             self.callback_bat_update,
         )
 
-    def set_energy_estimated_callback(self, callback: Callable[[float]]):
+    def set_energy_estimated_callback(self, callback: Callable[[float], None]):
         self._callback_energy_estimated = callback
 
-    def set_soc_requested_callback(self, callback: Callable[[int]]):
+    def set_soc_requested_callback(self, callback: Callable[[int], None]):
         self._callback_soc_requested = callback
 
     @property

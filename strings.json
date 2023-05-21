@@ -3,8 +3,8 @@
     "step": {
       "user": {
         "data": {
-          "scan_interval": "[%key:common::config_flow::data::scan_interval%]",
-          "charge_target": "[%key:common::config_flow::data::charge_target%]",
+          "scan_interval": "description for scan interval",
+          "charge_target": "description for charge target interval",
           "password": "[%key:common::config_flow::data::password%]"
         }
       }
@@ -22,14 +22,13 @@
     "step": {
       "init": {
         "title": "My Configuration",
-        "description":"ble",
+        "description": "ble",
         "data": {
           "battery_capacity": "bleble capacity",
           "evse_session_energy": "ble energy",
           "car_soc_level": "ble ble level",
           "evse_plug_connected": "plug connected",
           "car_soc_update_time": "battery soc update"
-
         }
       }
     }

@@ -11,24 +11,25 @@
         "step": {
             "user": {
                 "data": {
-                    "scan_interval": "description for scan interval",
-                    "charge_target": "description for charge target"
+                    "charge_target": "description for charge target interval",
+                    "password": "Password",
+                    "scan_interval": "description for scan interval"
                 }
             }
         }
     },
     "options": {
-        "step":{
+        "step": {
             "init": {
-                "title": "SLX Configuration",
-                "description":"Set Input Entities",
-                "data":{
-                    "battery_capacity": "Battery Capacity(kWh)",
-                    "evse_session_energy": "Charger Session Energy",
-                    "car_soc_level": "Car SOC level(%)",
-                    "evse_plug_connected": "Charger Plug Connected",
-                    "car_soc_update_time": "Car SOC update time"
-                }
+                "data": {
+                    "battery_capacity": "bleble capacity",
+                    "car_soc_level": "ble ble level",
+                    "car_soc_update_time": "battery soc update",
+                    "evse_plug_connected": "plug connected",
+                    "evse_session_energy": "ble energy"
+                },
+                "description": "ble",
+                "title": "My Configuration"
             }
         }
     }
