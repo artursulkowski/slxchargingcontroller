@@ -16,7 +16,7 @@ from homeassistant.core import (
 )
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry
+from homeassistant.helpers import entity_registry, device_registry
 from homeassistant.helpers.service import async_get_all_descriptions
 
 from homeassistant.helpers.selector import (
@@ -41,6 +41,8 @@ from collections import OrderedDict
 from homeassistant.const import (
     CONF_SCAN_INTERVAL,
 )
+
+from .slxopenevse import SLXOpenEVSE
 
 from .const import (
     CONF_CHARGE_TARGET,
@@ -222,6 +224,8 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
             )
         ] = self.build_selector(list_of_plugs)
 
+        ## TODO replace with SLXOpenEVSE call for checking entities.
+        SLXOpenEVSE.check_all_entities(self.hass)
         self.schema = vol.Schema(fields)
 
     async def async_step_init(self, user_input=None) -> FlowResult:

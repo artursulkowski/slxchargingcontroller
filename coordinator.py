@@ -34,6 +34,7 @@ from .const import (
 )
 
 from .chargingmanager import SLXChargingManager, SlxTimer
+from .slxopenevse import SLXOpenEVSE
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
@@ -71,31 +72,42 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         # variables to store enities numbers.
         self.ent_soc_min: int = 20
         self.ent_soc_max: int = 80
+        self.ent_charger_select: str = ""
 
-        self.unsub_openevse_session_energy = None
-        current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
-        if current_evse_energy != "":
-            _LOGGER.warning("Subscribing to")
-            _LOGGER.warning(current_evse_energy)
-            self.unsub_openevse_session_energy = async_track_state_change_event(
-                hass,
-                current_evse_energy,
-                self.callback_charger_session_energy,
-            )
+        openevse = None
 
-        self.unsub_openevse_plug_connected = None
-        current_evse_plug_connected = config_entry.options.get(
-            CONF_EVSE_PLUG_CONNECTED, ""
+        openevse = SLXOpenEVSE(
+            hass,
+            cb_sessionenergy=self.callback_charger_session_energy,
+            cb_plug=self.callback_charger_plug_connected,
         )
-        if current_evse_plug_connected != "":
-            _LOGGER.warning("Subscribing to")
-            _LOGGER.warning(current_evse_plug_connected)
-            self.unsub_openevse_plug_connected = async_track_state_change_event(
-                hass,
-                current_evse_plug_connected,
-                self.callback_charger_plug_connected,
-            )
 
+        # TODO add checking if OpenEVSE was in fact setup through configuration
+
+        if openevse is None:
+            self.unsub_openevse_session_energy = None
+            current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
+            if current_evse_energy != "":
+                _LOGGER.warning("Subscribing to")
+                _LOGGER.warning(current_evse_energy)
+                self.unsub_openevse_session_energy = async_track_state_change_event(
+                    hass,
+                    current_evse_energy,
+                    self.callback_charger_session_energy,
+                )
+
+            self.unsub_openevse_plug_connected = None
+            current_evse_plug_connected = config_entry.options.get(
+                CONF_EVSE_PLUG_CONNECTED, ""
+            )
+            if current_evse_plug_connected != "":
+                _LOGGER.warning("Subscribing to")
+                _LOGGER.warning(current_evse_plug_connected)
+                self.unsub_openevse_plug_connected = async_track_state_change_event(
+                    hass,
+                    current_evse_plug_connected,
+                    self.callback_charger_plug_connected,
+                )
         self._received_soc_level: float = None
         self._received_soc_update: datetime = None
 
@@ -164,6 +176,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     async def set_soc_max(self, value: int):
         self.ent_soc_max = value
         _LOGGER.debug(value)
+
+    async def set_charger_select(self, value: str):
+        self.ent_charger_select = value
+        _LOGGER.error("TADA - I CAN STEER A CHARGER: %s", value)
 
     #
     @staticmethod
