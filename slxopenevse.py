@@ -98,7 +98,7 @@ class SLXOpenEVSE:
 
         if self.charge_mode == ChargerMode.PVCHARGE:
             self._set_value(SetEntities["divertmode"], "eco")
-            self._set_value(SetEntities["sleepmode"], "on")
+            self._set_value(SetEntities["sleepmode"], "off")
             return
 
         if self.charge_mode == ChargerMode.NORMALCHARGE:

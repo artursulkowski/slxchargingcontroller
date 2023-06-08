@@ -24,3 +24,6 @@ REQUEST_SOC_UPDATE = "request_soc_update"
 # Entities - number
 SOC_LIMIT_MIN = "soc_limit_min"
 SOC_LIMIT_MAX = "soc_limit_max"
+
+# Entities - select
+CHARGE_MODE = "charge_mode"

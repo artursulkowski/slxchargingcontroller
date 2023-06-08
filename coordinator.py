@@ -72,6 +72,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         # variables to store enities numbers.
         self.ent_soc_min: int = 20
         self.ent_soc_max: int = 80
+        self.ent_charger_select: str = ""
 
         openevse = None
 
@@ -175,6 +176,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     async def set_soc_max(self, value: int):
         self.ent_soc_max = value
         _LOGGER.debug(value)
+
+    async def set_charger_select(self, value: str):
+        self.ent_charger_select = value
+        _LOGGER.error("TADA - I CAN STEER A CHARGER: %s", value)
 
     #
     @staticmethod

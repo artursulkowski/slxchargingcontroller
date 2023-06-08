@@ -42,6 +42,8 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
 )
 
+from .slxopenevse import SLXOpenEVSE
+
 from .const import (
     CONF_CHARGE_TARGET,
     DEFAULT_CHARGE_TARGET,
@@ -223,7 +225,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
         ] = self.build_selector(list_of_plugs)
 
         ## TODO replace with SLXOpenEVSE call for checking entities.
-        self.find_openevse_entities(self.hass)
+        SLXOpenEVSE.check_all_entities(self.hass)
         self.schema = vol.Schema(fields)
 
     async def async_step_init(self, user_input=None) -> FlowResult:
