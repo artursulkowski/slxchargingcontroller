@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 from typing import Final
+from dataclasses import dataclass
+
 
 from homeassistant.components.number import NumberEntity, NumberEntityDescription
 from homeassistant.const import PERCENTAGE
@@ -14,15 +16,30 @@ from .const import (
     DOMAIN,
     SOC_LIMIT_MIN,
     SOC_LIMIT_MAX,
+    ENT_SOC_LIMIT_MIN,
+    ENT_SOC_LIMIT_MAX,
+    CMD_SOC_MIN,
+    CMD_SOC_MAX,
 )
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-NUMBER_DESCRIPTIONS: Final[tuple[NumberEntityDescription, ...]] = (
-    NumberEntityDescription(
+
+@dataclass
+class SLXNumberEntityDescription(NumberEntityDescription):
+    """Extend default NumberEntityDescription to include options and command which should be called in coordinator"""
+
+    command: str | None = None
+    data_entry: str | None = None
+
+
+NUMBER_DESCRIPTIONS: Final[tuple[SLXNumberEntityDescription, ...]] = (
+    SLXNumberEntityDescription(
         key=SOC_LIMIT_MIN,
+        command=CMD_SOC_MIN,
+        data_entry=ENT_SOC_LIMIT_MIN,
         name="SOC Limit min",
         icon="mdi:ev-plug-type2",
         native_min_value=0,
@@ -30,8 +47,10 @@ NUMBER_DESCRIPTIONS: Final[tuple[NumberEntityDescription, ...]] = (
         native_step=5,
         native_unit_of_measurement=PERCENTAGE,
     ),
-    NumberEntityDescription(
+    SLXNumberEntityDescription(
         key=SOC_LIMIT_MAX,
+        command=CMD_SOC_MAX,
+        data_entry=ENT_SOC_LIMIT_MAX,
         name="SOC Limit max",
         icon="mdi:ev-plug-type2",
         native_min_value=0,
@@ -47,7 +66,6 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-
     coordinator = hass.data[DOMAIN][config_entry.unique_id]
     entities = []
 
@@ -65,11 +83,13 @@ class SlxChgCtrlNumber(NumberEntity, SlxChgCtrlEntity):
     def __init__(
         self,
         coordinator: SLXChgCtrlUpdateCoordinator,
-        description: NumberEntityDescription,
+        description: SLXNumberEntityDescription,
     ) -> None:
         super().__init__(coordinator)
         self._description = description
         self._key = self._description.key
+        self._command = self._description.command
+        self._data_entry = self._description.data_entry
         self._attr_unique_id = f"{DOMAIN}_{self._key}"
         self._attr_icon = self._description.icon
         self._attr_name = f"{self._description.name}"
@@ -98,14 +118,19 @@ class SlxChgCtrlNumber(NumberEntity, SlxChgCtrlEntity):
     @property
     def native_value(self) -> float | None:
         """Return the entity value to represent the entity state."""
-        if self._key == SOC_LIMIT_MIN:
-            return self.coordinator.ent_soc_min
-        else:
-            return self.coordinator.ent_soc_max
+        coordinator: SLXChgCtrlUpdateCoordinator = self.coordinator
+        data = coordinator.data
+        if self._data_entry in data and data is not None:
+            state = data[self._data_entry]
+            return float(state)
+        return None
 
     async def async_set_native_value(self, value: float) -> None:
-        if self._key == SOC_LIMIT_MIN:
-            await self.coordinator.set_soc_min(value)
-        else:
-            await self.coordinator.set_soc_max(value)
-        self.async_write_ha_state()
+        coordinator: SLXChgCtrlUpdateCoordinator = self.coordinator
+        try:
+            await getattr(coordinator, self._command)(value)
+            self.async_write_ha_state()
+        except (ValueError, KeyError, AttributeError) as err:
+            _LOGGER.warning(
+                "Could not set status for %s error: %s", self._attr_name, err
+            )

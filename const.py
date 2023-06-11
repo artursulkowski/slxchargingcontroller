@@ -25,5 +25,12 @@ REQUEST_SOC_UPDATE = "request_soc_update"
 SOC_LIMIT_MIN = "soc_limit_min"
 SOC_LIMIT_MAX = "soc_limit_max"
 
-# Entities - select
-CHARGE_MODE = "charge_mode"
+# Entities - commands in coordinator
+CMD_CHARGE_MODE = "charge_mode"
+CMD_SOC_MIN = "set_soc_min"
+CMD_SOC_MAX = "set_soc_max"
+
+# Entities attributes stored in coordinator->data
+ENT_CHARGE_MODE = "ent_charge_mode"
+ENT_SOC_LIMIT_MIN = "ent_soc_limit_min"
+ENT_SOC_LIMIT_MAX = "ent_soc_limit_max"

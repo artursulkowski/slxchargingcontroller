@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
 
-from .const import DOMAIN, CHARGE_MODE
+from .const import DOMAIN, CMD_CHARGE_MODE, ENT_CHARGE_MODE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,21 +27,20 @@ class SLXSelectEntityDescription(SelectEntityDescription):
     """Extend default SelectEntityDescription to include options and command which should be called in coordinator"""
 
     command: str | None = None
+    data_entry: str | None = None
     default_options: list | None = None
 
 
 SELECT_DESCRIPTIONS: Final[tuple[SLXSelectEntityDescription, ...]] = (
     SLXSelectEntityDescription(
-        key=CHARGE_MODE,
+        key=CMD_CHARGE_MODE,
+        command="set_charger_select",
+        data_entry=ENT_CHARGE_MODE,
         name="Charge mode",
         default_options=["UNKNOWN", "STOPPED", "PVCHARGE", "NORMALCHARGE"],
         icon="mdi:ev-station",
     ),
 )
-
-# TODO ? Extend SelectEntityDescription by adding
-# command: str | None = None
-# default_options: list | None = None
 
 
 async def async_setup_entry(
@@ -69,19 +68,28 @@ class SlxChrCtrlSelect(SelectEntity, SlxChgCtrlEntity):
         super().__init__(coordinator)
         self._description = description
         self._key = self._description.key
+        self._command = description.command
+        self._data_entry = description.data_entry
         self._attr_unique_id = f"{DOMAIN}_{self._key}"
         self._attr_icon = self._description.icon
         self._attr_name = f"{self._description.name}"
-        #  self._attr_device_class = self._description.device_class
         self._attr_options = description.default_options
 
     @property
     def current_option(self) -> str | None:
         coordinator: SLXChgCtrlUpdateCoordinator = self.coordinator
-        # TODO - for now it is very dumb workaround -working with only one such entity - I don't use any data from SELECT_DESCRIPTION to point to exact property
-        return coordinator.ent_charger_select
+        data = coordinator.data
+        if self._data_entry in data and data is not None:
+            state = data[self._data_entry]
+            return str(state)
+        return None
 
     async def async_select_option(self, option: Any) -> None:
         coordinator: SLXChgCtrlUpdateCoordinator = self.coordinator
-        # TODO - for now it is very dumb workaround -working with only one such entity - I don't use any data from SELECT_DESCRIPTION to point to exact property
-        await coordinator.set_charger_select(option)
+        try:
+            await getattr(coordinator, self._command)(option)
+            self.async_write_ha_state()
+        except (ValueError, KeyError, AttributeError) as err:
+            _LOGGER.warning(
+                "Could not set status for %s error: %s", self._attr_name, err
+            )
