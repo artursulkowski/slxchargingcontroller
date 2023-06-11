@@ -31,6 +31,9 @@ from .const import (
     CONF_CAR_SOC_UPDATE_TIME,
     CONF_BATTERY_CAPACITY,
     DOMAIN,
+    ENT_CHARGE_MODE,
+    ENT_SOC_LIMIT_MIN,
+    ENT_SOC_LIMIT_MAX,
 )
 
 from .chargingmanager import SLXChargingManager, SlxTimer
@@ -69,14 +72,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
         self.charging_manager.battery_capacity = bat_capacity
-        # variables to store enities numbers.
-        self.ent_soc_min: int = 20
-        self.ent_soc_max: int = 80
-        self.ent_charger_select: str = ""
 
-        openevse = None
+        self.openevse = None
 
-        openevse = SLXOpenEVSE(
+        self.openevse = SLXOpenEVSE(
             hass,
             cb_sessionenergy=self.callback_charger_session_energy,
             cb_plug=self.callback_charger_plug_connected,
@@ -84,7 +83,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         # TODO add checking if OpenEVSE was in fact setup through configuration
 
-        if openevse is None:
+        if self.openevse is None:
             self.unsub_openevse_session_energy = None
             current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
             if current_evse_energy != "":
@@ -152,36 +151,34 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             # update_interval=timedelta(seconds=self.scan_interval),
         )
 
+        ## TODO - workaround - I need to initialize data after parent class. This is not a typical flow.
+        self.data: dict(str, any) = {}
+        self.data[ENT_CHARGE_MODE] = str("UNKNOWN")
+        self.data[ENT_SOC_LIMIT_MIN] = float(20)
+        self.data[ENT_SOC_LIMIT_MAX] = float(80)
+
     async def _async_update_data(self):
         """Update data via library. Called by update_coordinator periodically."""
         _LOGGER.warning("Update function called periodically - to IMPLEMENT IT!")
         _LOGGER.debug(self)
 
-    async def set_soc_min(self, value: int):
-        self.ent_soc_min = value
-
-        # NOTES - NOT ALL ENTITIES HAVE ENTRIES DEFINED!
-        for state in self.hass.states.async_all():
-            entity_id = state.entity_id
-            _LOGGER.debug("===========")
-            _LOGGER.debug(entity_id)
-            _LOGGER.debug(state)
-            # if ent_reg_ent := ent_reg.async_get(entity_id):
-            #    _LOGGER.debug(ent_reg_ent)
-
+    async def set_soc_min(self, value: float):
+        # self.ent_soc_min = value
+        self.data[ENT_SOC_LIMIT_MIN] = value
         _LOGGER.debug(value)
 
-    # async_get_entity_id ?
-
-    async def set_soc_max(self, value: int):
-        self.ent_soc_max = value
+    async def set_soc_max(self, value: float):
+        self.data[ENT_SOC_LIMIT_MAX] = value
         _LOGGER.debug(value)
 
     async def set_charger_select(self, value: str):
-        self.ent_charger_select = value
-        _LOGGER.error("TADA - I CAN STEER A CHARGER: %s", value)
+        self.data[ENT_CHARGE_MODE] = value
+        if self.openevse is not None:
+            self.openevse.set_charger_mode(value)
+            _LOGGER.debug("Setting charger to %s", value)
+        else:
+            _LOGGER.error("No charger to setup: %s", value)
 
-    #
     @staticmethod
     def extract_energy_entity(event_new_state) -> float:
         """Translates state with energy into kWh"""
@@ -215,7 +212,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     def callback_energy_estimated(self, energy: float) -> None:
         """Callback used to inform that new battery energy is estimated"""
         # Passed data is not used - so pass just a useless string
-        self.async_set_updated_data("testdata")
+        self.async_set_updated_data(self.data)
 
     @callback
     def callback_soc_requested(self, request_counter: int) -> None:

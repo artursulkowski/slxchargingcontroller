@@ -16,6 +16,14 @@ from homeassistant.core import (
     callback,
 )
 
+from .const import (
+    CHARGER_MODES,
+    CHR_MODE_UNKNOWN,
+    CHR_MODE_STOPPED,
+    CHR_MODE_PVCHARGE,
+    CHR_MODE_NORMAL,
+)
+
 
 # entities we subscribe to
 WatchedEntities = {
@@ -35,21 +43,15 @@ GetEntities = {
 SetEntities = {
     "manualoverride": "switch.openevse_manual_override",
     "divertmode": "select.openevse_divert_mode",
-    "sleepmode": "switch.openevse_sleep_mode",
 }
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class ChargerMode(Enum):
-    UNKNOWN = 0
-    STOPPED = 1
-    PVCHARGE = 2
-    NORMALCHARGE = 3
-
-
 class SLXOpenEVSE:
     """Class for OpenEVSE connection"""
+
+    openevse_id: str | None = None
 
     def __init__(
         self,
@@ -59,8 +61,7 @@ class SLXOpenEVSE:
     ):
         _LOGGER.debug("SLXOpenEVSE")
         self.hass = hass
-        self.charge_mode = ChargerMode.UNKNOWN
-        # entity_list = SLXOpenEVSE.__find_openevse_entities(hass)
+        self.charge_mode: str = CHR_MODE_UNKNOWN
         self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
         SLXOpenEVSE.check_all_entities(hass)
         self.__subscribe_entity(WatchedEntities["sessionenergy"], cb_sessionenergy)
@@ -75,41 +76,86 @@ class SLXOpenEVSE:
 
     def _get_value(self, name: str) -> Any:
         if name in GetEntities:
-            return self.hass.states.get(GetEntities[name])
-        else:
-            return None
+            return self.hass.states.get(GetEntities[name]).state
+        if name in SetEntities:
+            return self.hass.states.get(SetEntities[name]).state
+        return None
 
     def _set_value(self, name: str, value: Any) -> bool:
         if name in SetEntities:
-            self.hass.states.set(SetEntities[name], value)
+            self.hass.async_add_executor_job(
+                self.hass.states.set,
+                SetEntities[name],
+                value,
+                {},
+            )
             return True
         else:
             return False
 
-    def set_charger_mode(self, mode: ChargerMode) -> None:
+    def _select_option(self, name: str, value: str) -> bool:
+        if name in SetEntities:
+            self.hass.async_add_executor_job(
+                self.hass.services.call,
+                "select",
+                "select_option",
+                {"entity_id": SetEntities[name], "option": value},
+            )
+            return True
+        return False
+
+    def _activate_override(self, charge: bool) -> bool:
+        value_to_set: str = ""
+        if charge:
+            value_to_set = "active"
+        else:
+            value_to_set = "disabled"
+        self.hass.async_add_executor_job(
+            self.hass.services.call,
+            "openevse",
+            "set_override",
+            {"state": value_to_set, "device_id": [SLXOpenEVSE.openevse_id]},
+        )
+
+    def _clear_override(self) -> bool:
+        self.hass.async_add_executor_job(
+            self.hass.services.call,
+            "openevse",
+            "clear_override",
+            {"device_id": [SLXOpenEVSE.openevse_id]},
+        )
+
+    def set_charger_mode(self, mode: str) -> None:
+        if not mode in CHARGER_MODES:
+            _LOGGER.error("Invalid charing mode %s", mode)
+            return
+
         if mode == self.charge_mode:
             return
         self.charge_mode = mode
 
-        if self.charge_mode == ChargerMode.STOPPED:
-            self._set_value(SetEntities["divertmode"], "fast")
-            self._set_value(SetEntities["sleepmode"], "on")
+        if self.charge_mode == CHR_MODE_STOPPED:
+            if self._get_value("divertmode") != "fast":
+                self._select_option("divertmode", "fast")
+            self._activate_override(False)
             return
 
-        if self.charge_mode == ChargerMode.PVCHARGE:
-            self._set_value(SetEntities["divertmode"], "eco")
-            self._set_value(SetEntities["sleepmode"], "off")
+        if self.charge_mode == CHR_MODE_PVCHARGE:
+            if self._get_value("divertmode") != "eco":
+                self._select_option("divertmode", "eco")
+            self._clear_override()
             return
 
-        if self.charge_mode == ChargerMode.NORMALCHARGE:
-            self._set_value(SetEntities["divertmode"], "fast")
-            self._set_value(SetEntities["sleepmode"], "off")
+        if self.charge_mode == CHR_MODE_NORMAL:
+            if self._get_value("divertmode") != "fast":
+                self._select_option("divertmode", "fast")
+            self._activate_override(True)
             return
 
     @staticmethod
     def _find_openevse_entities(hass: HomeAssistant) -> dict[str, EntityRegistry]:
         deviceregistry = device_registry.async_get(hass)
-        openevse_id = None
+        #  openevse_id = None
         for device_id in deviceregistry.devices:
             device = deviceregistry.async_get(device_id)
             if device.manufacturer == "OpenEVSE":
@@ -118,17 +164,17 @@ class SLXOpenEVSE:
                 if device.model != "openevse_wifi_v1":
                     details_ok = False
                 if details_ok is True:
-                    openevse_id = device_id
+                    SLXOpenEVSE.openevse_id = device_id
                     break
-        if openevse_id is None:
+        if SLXOpenEVSE.openevse_id is None:
             return
-        _LOGGER.debug("Found OpenEVSE %s", openevse_id)
+        _LOGGER.debug("Found OpenEVSE %s", SLXOpenEVSE.openevse_id)
 
         entity_list: dict[str, EntityRegistry] = {}
         entityregistry = entity_registry.async_get(hass)
         for entity_id in entityregistry.entities:
             entity = entityregistry.async_get(entity_id)
-            if entity.device_id == openevse_id:
+            if entity.device_id == SLXOpenEVSE.openevse_id:
                 entity_list[entity.entity_id] = entity
         return entity_list
 
