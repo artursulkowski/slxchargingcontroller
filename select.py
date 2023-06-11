@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
 
-from .const import DOMAIN, CMD_CHARGE_MODE, ENT_CHARGE_MODE
+from .const import DOMAIN, CMD_CHARGE_MODE, ENT_CHARGE_MODE, CHARGER_MODES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ SELECT_DESCRIPTIONS: Final[tuple[SLXSelectEntityDescription, ...]] = (
         command="set_charger_select",
         data_entry=ENT_CHARGE_MODE,
         name="Charge mode",
-        default_options=["UNKNOWN", "STOPPED", "PVCHARGE", "NORMALCHARGE"],
+        default_options=CHARGER_MODES,
         icon="mdi:ev-station",
     ),
 )

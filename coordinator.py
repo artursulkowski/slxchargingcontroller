@@ -73,9 +73,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
         self.charging_manager.battery_capacity = bat_capacity
 
-        openevse = None
+        self.openevse = None
 
-        openevse = SLXOpenEVSE(
+        self.openevse = SLXOpenEVSE(
             hass,
             cb_sessionenergy=self.callback_charger_session_energy,
             cb_plug=self.callback_charger_plug_connected,
@@ -83,7 +83,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         # TODO add checking if OpenEVSE was in fact setup through configuration
 
-        if openevse is None:
+        if self.openevse is None:
             self.unsub_openevse_session_energy = None
             current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
             if current_evse_energy != "":
@@ -173,10 +173,12 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     async def set_charger_select(self, value: str):
         self.data[ENT_CHARGE_MODE] = value
-        # self.ent_charger_select = value
-        _LOGGER.error("TADA - I CAN STEER A CHARGER: %s", value)
+        if self.openevse is not None:
+            self.openevse.set_charger_mode(value)
+            _LOGGER.debug("Setting charger to %s", value)
+        else:
+            _LOGGER.error("No charger to setup: %s", value)
 
-    #
     @staticmethod
     def extract_energy_entity(event_new_state) -> float:
         """Translates state with energy into kWh"""
