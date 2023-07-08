@@ -17,7 +17,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
 
-from .const import DOMAIN, CMD_CHARGE_MODE, ENT_CHARGE_MODE, CHARGER_MODES
+from .const import (
+    DOMAIN,
+    KEY_CHARGE_MODE,
+    CMD_CHARGE_MODE,
+    ENT_CHARGE_MODE,
+    CHARGER_MODES,
+    KEY_CHARGE_METHOD,
+    CMD_CHARGE_METHOD,
+    ENT_CHARGE_METHOD,
+    CHARGE_METHODS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,11 +43,19 @@ class SLXSelectEntityDescription(SelectEntityDescription):
 
 SELECT_DESCRIPTIONS: Final[tuple[SLXSelectEntityDescription, ...]] = (
     SLXSelectEntityDescription(
-        key=CMD_CHARGE_MODE,
-        command="set_charger_select",
+        key=KEY_CHARGE_MODE,
+        command=CMD_CHARGE_MODE,
         data_entry=ENT_CHARGE_MODE,
         name="Charge mode",
         default_options=CHARGER_MODES,
+        icon="mdi:ev-station",
+    ),
+    SLXSelectEntityDescription(
+        key=KEY_CHARGE_METHOD,
+        command=CMD_CHARGE_METHOD,
+        data_entry=ENT_CHARGE_METHOD,
+        name="Charge method",
+        default_options=CHARGE_METHODS,
         icon="mdi:ev-station",
     ),
 )
