@@ -20,6 +20,9 @@ from .const import (
     ENT_SOC_LIMIT_MAX,
     CMD_SOC_MIN,
     CMD_SOC_MAX,
+    SOC_TARGET,
+    ENT_SOC_TARGET,
+    CMD_SOC_TARGET,
 )
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .entity import SlxChgCtrlEntity
@@ -56,6 +59,17 @@ NUMBER_DESCRIPTIONS: Final[tuple[SLXNumberEntityDescription, ...]] = (
         native_min_value=0,
         native_max_value=100,
         native_step=5,
+        native_unit_of_measurement=PERCENTAGE,
+    ),
+    SLXNumberEntityDescription(
+        key=SOC_TARGET,
+        command=CMD_SOC_TARGET,
+        data_entry=ENT_SOC_TARGET,
+        name="SOC target",
+        icon="mdi:ev-plug-type2",
+        native_min_value=0,
+        native_max_value=100,
+        native_step=1,
         native_unit_of_measurement=PERCENTAGE,
     ),
 )

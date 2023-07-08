@@ -8,6 +8,7 @@ import logging
 import asyncio
 
 from homeassistant.config_entries import ConfigEntry
+
 from homeassistant.const import (
     CONF_SCAN_INTERVAL,
 )
@@ -32,8 +33,12 @@ from .const import (
     CONF_BATTERY_CAPACITY,
     DOMAIN,
     ENT_CHARGE_MODE,
+    ENT_CHARGE_METHOD,
+    CHR_MODE_UNKNOWN,
+    CHR_METHOD_ECO,
     ENT_SOC_LIMIT_MIN,
     ENT_SOC_LIMIT_MAX,
+    ENT_SOC_TARGET,
 )
 
 from .chargingmanager import SLXChargingManager, SlxTimer
@@ -49,6 +54,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DELAYED_SOC_READING: int = 5  # seconds
+RETRY_SOC_UPDATE: int = 60  # seconds
 
 
 class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
@@ -143,6 +149,13 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             self.callback_soc_delayed,
         )
 
+        self._timer_service_soc_update = SlxTimer(
+            hass,
+            _LOGGER,
+            timedelta(seconds=RETRY_SOC_UPDATE),
+            self.callback_soc_requested_retry,
+        )
+
         super().__init__(
             hass,
             _LOGGER,
@@ -153,9 +166,12 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         ## TODO - workaround - I need to initialize data after parent class. This is not a typical flow.
         self.data: dict(str, any) = {}
-        self.data[ENT_CHARGE_MODE] = str("UNKNOWN")
+        self.data[ENT_CHARGE_MODE] = CHR_MODE_UNKNOWN
+        self.data[ENT_CHARGE_METHOD] = CHR_METHOD_ECO
         self.data[ENT_SOC_LIMIT_MIN] = float(20)
         self.data[ENT_SOC_LIMIT_MAX] = float(80)
+        # We are setting up target SOC same as minimum. Of course planner can and will override it.
+        self.data[ENT_SOC_TARGET] = self.data[ENT_SOC_LIMIT_MIN]
 
     async def _async_update_data(self):
         """Update data via library. Called by update_coordinator periodically."""
@@ -171,6 +187,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.data[ENT_SOC_LIMIT_MAX] = value
         _LOGGER.debug(value)
 
+    async def set_soc_target(self, value: float):
+        self.data[ENT_SOC_TARGET] = value
+        _LOGGER.debug("Setting SOC target to %i", value)
+
     async def set_charger_select(self, value: str):
         self.data[ENT_CHARGE_MODE] = value
         if self.openevse is not None:
@@ -178,6 +198,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Setting charger to %s", value)
         else:
             _LOGGER.error("No charger to setup: %s", value)
+
+    async def set_charge_method(self, value: str):
+        self.data[ENT_CHARGE_METHOD] = value
+        _LOGGER.debug("Setting charging method to %s", value)
 
     @staticmethod
     def extract_energy_entity(event_new_state) -> float:
@@ -215,12 +239,24 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.async_set_updated_data(self.data)
 
     @callback
-    def callback_soc_requested(self, request_counter: int) -> None:
+    def callback_soc_requested(self, request_counter: int = -1) -> None:
         _LOGGER.debug("SOC Request number %d", request_counter)
         # TODO - now it is just hardcoded service. Later it should be set by configuration
-        self.hass.async_add_executor_job(
-            self.hass.services.call, "kia_uvo", "force_update", {}
-        )
+
+        if self.hass.services.has_service("kia_uvo", "force_update"):
+            self.hass.async_add_executor_job(
+                self.hass.services.call, "kia_uvo", "force_update", {}
+            )
+        else:
+            _LOGGER.error("Force update service not found")
+            if request_counter != -1:
+                _LOGGER.debug("Schedule retry of force update")
+                self._timer_service_soc_update.schedule_timer()
+
+    # TODO workaround because SLXTimer is passing DateTime as parametrs - this should be made more elegant
+    @callback
+    def callback_soc_requested_retry(self, _) -> None:
+        self.callback_soc_requested()
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:
