@@ -41,7 +41,8 @@ from .const import (
     ENT_SOC_TARGET,
 )
 
-from .chargingmanager import SLXChargingManager, SlxTimer
+from .chargingmanager import SLXChargingManager
+from .timer import SlxTimer
 from .slxopenevse import SLXOpenEVSE
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -75,6 +76,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             self.callback_energy_estimated
         )
         self.charging_manager.set_soc_requested_callback(self.callback_soc_requested)
+        self.charging_manager.set_charger_mode_callback(self.callback_charger_mode)
 
         bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
         self.charging_manager.battery_capacity = bat_capacity
@@ -173,6 +175,11 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         # We are setting up target SOC same as minimum. Of course planner can and will override it.
         self.data[ENT_SOC_TARGET] = self.data[ENT_SOC_LIMIT_MIN]
 
+        self.charging_manager.soc_minimum = self.data[ENT_SOC_LIMIT_MIN]
+        self.charging_manager.soc_maximum = self.data[ENT_SOC_LIMIT_MAX]
+        self.charging_manager.target_soc = self.data[ENT_SOC_TARGET]
+        self.charging_manager.charge_method = self.data[ENT_CHARGE_METHOD]
+
     async def _async_update_data(self):
         """Update data via library. Called by update_coordinator periodically."""
         _LOGGER.warning("Update function called periodically - to IMPLEMENT IT!")
@@ -181,15 +188,18 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     async def set_soc_min(self, value: float):
         # self.ent_soc_min = value
         self.data[ENT_SOC_LIMIT_MIN] = value
+        self.charging_manager.soc_minimum = value
         _LOGGER.debug(value)
 
     async def set_soc_max(self, value: float):
         self.data[ENT_SOC_LIMIT_MAX] = value
+        self.charging_manager.soc_maximum = value
         _LOGGER.debug(value)
 
     async def set_soc_target(self, value: float):
-        self.data[ENT_SOC_TARGET] = value
         _LOGGER.debug("Setting SOC target to %i", value)
+        self.data[ENT_SOC_TARGET] = value
+        self.charging_manager.target_soc = value
 
     async def set_charger_select(self, value: str):
         self.data[ENT_CHARGE_MODE] = value
@@ -200,8 +210,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("No charger to setup: %s", value)
 
     async def set_charge_method(self, value: str):
-        self.data[ENT_CHARGE_METHOD] = value
         _LOGGER.debug("Setting charging method to %s", value)
+        self.data[ENT_CHARGE_METHOD] = value
+        self.charging_manager.charge_method = value
 
     @staticmethod
     def extract_energy_entity(event_new_state) -> float:
@@ -257,6 +268,12 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     @callback
     def callback_soc_requested_retry(self, _) -> None:
         self.callback_soc_requested()
+
+    @callback
+    def callback_charger_mode(self, charger_mode: str) -> None:
+        _LOGGER.debug("Callback for change charger mode %s", charger_mode)
+        # TODO - put here controlling of OpenEVSE. Same method as for changing entity value?
+        _LOGGER.error("Not implemented!")
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:
