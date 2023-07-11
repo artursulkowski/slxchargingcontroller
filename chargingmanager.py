@@ -5,10 +5,22 @@ from homeassistant.helpers.event import async_call_later
 from datetime import timedelta, datetime
 from collections.abc import Callable
 from enum import Enum
-from bisect import bisect_left
+
+# from bisect import bisect_left
 
 import homeassistant.util.dt as dt_util
+from .timer import SlxTimer
 
+from .const import (
+    CHARGER_MODES,
+    CHR_MODE_UNKNOWN,
+    CHR_MODE_STOPPED,
+    CHR_MODE_PVCHARGE,
+    CHR_MODE_NORMAL,
+    CHR_MODE_UNKNOWN,
+    CHR_METHOD_ECO,
+    CHR_METHOD_FAST,
+)
 
 SOC_REQUEST_TIMEOUT: int = 120  # seconds
 NEXT_SOC_REQUEST_UPDATE: int = 60  # minutes
@@ -109,41 +121,6 @@ class SlxEnergyTracker:
     #     )
 
 
-class SlxTimer:
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        logger,
-        default_time: timedelta,
-        timer_callback: Callable[[], None],
-    ):
-        self.hass = hass
-        self.logger = logger
-        self.wait_time: timedelta = default_time
-        self.timer_callback = timer_callback
-        self.unsub_callback: Callable[[], None] = None
-
-    def schedule_timer(self, new_wait_time: timedelta = None):
-        if self.unsub_callback is not None:
-            self.unsub_callback()
-            self.unsub_callback = None
-            self.logger.debug("Cancel timer %s before scheduling again", __name__)
-        wait_time_to_use = self.wait_time
-        if new_wait_time is not None:
-            wait_time_to_use = new_wait_time
-        self.unsub_callback = async_call_later(
-            self.hass, wait_time_to_use, self.timer_callback
-        )
-
-    def cancel_timer(self):
-        if self.unsub_callback is not None:
-            self.unsub_callback()
-            self.unsub_callback = None
-            self.logger.debug("Canceled timer %s", __name__)
-        else:
-            self.logger.debug("Ignore canceling timer %s", __name__)
-
-
 class SLXChargingManager:
     """Class for Charging Manager"""
 
@@ -160,11 +137,19 @@ class SLXChargingManager:
         # configs
         self._battery_capacity: float = None
 
+        # settings
+        self._soc_minimum: float = None
+        self._soc_maximum: float = None
+        self._target_soc: float = None
+        self._charge_method: str = None
+
         # calculated values
         self._attr_bat_energy_estimated: float = None
         self._attr_bat_soc_estimated: float = None
         self._attr_charging_session_duration: int = None
         self._attr_request_soc_update: int = 0
+
+        self._evse_value: str = None
 
         # not exposed yet
         self._attr_charging_active: bool = False
@@ -172,6 +157,7 @@ class SLXChargingManager:
 
         self._callback_energy_estimated: Callable[[float], None] = None
         self._callback_soc_requested: Callable[[int], None] = None
+        self._callback_set_charger_mode: Callable[[str], None] = None
 
         # timers for controller
         self.timer_soc_request_timeout = SlxTimer(
@@ -194,6 +180,9 @@ class SLXChargingManager:
     def set_soc_requested_callback(self, callback: Callable[[int], None]):
         self._callback_soc_requested = callback
 
+    def set_charger_mode_callback(self, callback: Callable[[str], None]):
+        self._callback_set_charger_mode = callback
+
     @property
     def plug_status(self):
         return self._plug_status
@@ -215,6 +204,51 @@ class SLXChargingManager:
     @battery_capacity.setter
     def battery_capacity(self, new_bat_capacity: float):
         self._battery_capacity = new_bat_capacity
+
+    @property
+    def soc_minimum(self):
+        return self._soc_minimum
+
+    @soc_minimum.setter
+    def soc_minimum(self, new_value: float):
+        # TODO - I have in total 4 parameters which will have the same setter. Consider alternative solution (property decorator?)
+        old_value = self._soc_minimum
+        self._soc_minimum = new_value
+        if old_value is not None and old_value != new_value:
+            self.calculate_evse_state()
+
+    @property
+    def soc_maximum(self):
+        return self._soc_maximum
+
+    @soc_maximum.setter
+    def soc_maximum(self, new_value: float):
+        old_value = self._soc_maximum
+        self._soc_maximum = new_value
+        if old_value is not None and old_value != new_value:
+            self.calculate_evse_state()
+
+    @property
+    def target_soc(self):
+        return self._target_soc
+
+    @target_soc.setter
+    def target_soc(self, new_value: float):
+        old_value = self._target_soc
+        self._target_soc = new_value
+        if old_value is not None and old_value != new_value:
+            self.calculate_evse_state()
+
+    @property
+    def charge_method(self):
+        return self._charge_method
+
+    @charge_method.setter
+    def charge_method(self, new_value: str):
+        old_value = self._charge_method
+        self._charge_method = new_value
+        if old_value is not None and old_value != new_value:
+            self.calculate_evse_state()
 
     def set_soc_level(self, new_soc_level: float, new_soc_update: datetime = None):
         # in case we have car not connected - just ignore SOC updates.
@@ -255,7 +289,10 @@ class SLXChargingManager:
         )
         if self._callback_energy_estimated is not None:
             # passing estimated energy to callback - however - this values is not used directly (to be removed)
+            self._car_connected_status = CarConnectedStates.soc_known
             self._callback_energy_estimated(self._attr_bat_energy_estimated)
+
+        self.calculate_evse_state()
 
     def plug_connected(self):
         """called when plug is connected"""
@@ -289,6 +326,13 @@ class SLXChargingManager:
         else:
             self.logger.warning("Callback for SOC requested is not set up")
 
+    def request_evse_set(self, evse_mode: str):
+        # for evse mode use CHARGER_MODES
+        if self._callback_set_charger_mode is not None:
+            self._callback_set_charger_mode(evse_mode)
+        else:
+            self.logger.warning("Callback for setting charger mode is not set up")
+
     @callback
     def callback_soc_timeout(self, _) -> None:
         """Callback for SLXTimer - called when SOC Update timeouts"""
@@ -304,3 +348,46 @@ class SLXChargingManager:
         self.logger.debug("callback_bat_update")
         if self._attr_charging_active is True:
             self.request_bat_soc_update()
+
+    def calculate_evse_state(self) -> None:
+        """Method is called to recalculate if what state should the charger be depending on charging manager status"""
+        new_evse_value: str = None
+
+        match self._car_connected_status:
+            case CarConnectedStates.ramping_up:
+                new_evse_value = (
+                    None  # set none as "I don't know and I don't want to change"
+                )
+
+            case CarConnectedStates.autopilot:
+                new_evse_value = CHR_MODE_NORMAL
+
+            case CarConnectedStates.soc_known:
+                # we can select normal,sleep or PV charge.
+
+                if self._attr_bat_soc_estimated < self.soc_minimum:
+                    new_evse_value = CHR_MODE_NORMAL
+                elif self._attr_bat_soc_estimated < self.soc_maximum:
+                    if self.charge_method == CHR_METHOD_ECO:
+                        new_evse_value = CHR_MODE_PVCHARGE
+                    if self.charge_method == CHR_METHOD_FAST:
+                        if self._attr_bat_energy_estimated < self.target_soc:
+                            new_evse_value = CHR_MODE_NORMAL
+                        else:
+                            new_evse_value = CHR_MODE_STOPPED
+                else:  # soc >= soc_maximum
+                    if self._attr_bat_soc_estimated > self.target_soc:
+                        new_evse_value = CHR_MODE_STOPPED
+                    else:
+                        if self.charge_method == CHR_METHOD_FAST:
+                            new_evse_value = CHR_MODE_NORMAL
+                        if self.charge_method == CHR_METHOD_ECO:
+                            new_evse_value = CHR_MODE_PVCHARGE
+
+        if new_evse_value is None:
+            return  # nothing to do
+
+        if self._evse_value is None or self._evse_value != new_evse_value:
+            # we need to change charger setting
+            self._evse_value = new_evse_value
+            self.request_evse_set(new_evse_value)
