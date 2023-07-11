@@ -36,9 +36,11 @@ from .const import (
     ENT_CHARGE_METHOD,
     CHR_MODE_UNKNOWN,
     CHR_METHOD_ECO,
+    CHR_METHOD_MANUAL,
     ENT_SOC_LIMIT_MIN,
     ENT_SOC_LIMIT_MAX,
     ENT_SOC_TARGET,
+    CHARGER_MODES,
 )
 
 from .chargingmanager import SLXChargingManager
@@ -202,6 +204,16 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.target_soc = value
 
     async def set_charger_select(self, value: str):
+        if self.data[ENT_CHARGE_METHOD] != CHR_METHOD_MANUAL:
+            _LOGGER.warning(
+                "It is not possible to control charger is method is not set to MANUAL"
+            )
+            self.async_set_updated_data(self.data)
+            return
+
+        self.async_charger_select(value)
+
+    def async_charger_select(self, value: str):
         self.data[ENT_CHARGE_MODE] = value
         if self.openevse is not None:
             self.openevse.set_charger_mode(value)
@@ -272,8 +284,19 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     @callback
     def callback_charger_mode(self, charger_mode: str) -> None:
         _LOGGER.debug("Callback for change charger mode %s", charger_mode)
-        # TODO - put here controlling of OpenEVSE. Same method as for changing entity value?
-        _LOGGER.error("Not implemented!")
+        if self.data[ENT_CHARGE_METHOD] == CHR_METHOD_MANUAL:
+            _LOGGER.debug(
+                "Ignoring request to change charge mode to %s as manual charing method is selected",
+                charger_mode,
+            )
+            return
+        if self.openevse is None:
+            _LOGGER.error("OpenEVSE isn't setup")
+            return
+
+        if charger_mode in CHARGER_MODES:
+            self.async_charger_select(charger_mode)
+            self.async_set_updated_data(self.data)
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:

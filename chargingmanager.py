@@ -289,7 +289,10 @@ class SLXChargingManager:
         )
         if self._callback_energy_estimated is not None:
             # passing estimated energy to callback - however - this values is not used directly (to be removed)
+            self._car_connected_status = CarConnectedStates.soc_known
             self._callback_energy_estimated(self._attr_bat_energy_estimated)
+
+        self.calculate_evse_state()
 
     def plug_connected(self):
         """called when plug is connected"""
@@ -326,7 +329,7 @@ class SLXChargingManager:
     def request_evse_set(self, evse_mode: str):
         # for evse mode use CHARGER_MODES
         if self._callback_set_charger_mode is not None:
-            self._callback_set_charger_mode(self, evse_mode)
+            self._callback_set_charger_mode(evse_mode)
         else:
             self.logger.warning("Callback for setting charger mode is not set up")
 
@@ -373,7 +376,7 @@ class SLXChargingManager:
                         else:
                             new_evse_value = CHR_MODE_STOPPED
                 else:  # soc >= soc_maximum
-                    if self._attr_bat_energy_estimated > self.target_soc:
+                    if self._attr_bat_soc_estimated > self.target_soc:
                         new_evse_value = CHR_MODE_STOPPED
                     else:
                         if self.charge_method == CHR_METHOD_FAST:
@@ -386,5 +389,5 @@ class SLXChargingManager:
 
         if self._evse_value is None or self._evse_value != new_evse_value:
             # we need to change charger setting
-            self.request_evse_set(new_evse_value)
             self._evse_value = new_evse_value
+            self.request_evse_set(new_evse_value)
