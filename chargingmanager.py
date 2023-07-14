@@ -25,6 +25,10 @@ from .const import (
 SOC_REQUEST_TIMEOUT: int = 120  # seconds
 NEXT_SOC_REQUEST_UPDATE: int = 60  # minutes
 CHARGING_EFFICIENCY: float = 0.80  # assumed efficiency of charging.
+SOC_BEFORE_ENERGY: int = 600  # seconds
+SOC_AFTER_ENERGY: int = (
+    3600 * 4
+)  # seconds - we accept a difference of up to 4 hours. Bigger indicates that something terribly wrong was happening and we should not treat values as relevant.
 
 
 class CarConnectedStates(Enum):
@@ -64,30 +68,57 @@ class SlxEnergyTracker:
         return self.calculate_estimated_session()
 
     def calculate_estimated_session(self) -> bool:
-        # few conditions need to be met..
+        # few conditions need to be met to calculate ammount of energy
         length_of_history = len(self._session_energy_history)
-        if length_of_history < 2:
-            return False
+
+        # if no soc information is provided - we cannot estimate SOC
         if self._soc_information[0] is None:
             return False
-        index: int = -1
-        for i in range(length_of_history):
-            if self._session_energy_history[i][0] >= self._soc_information[0]:
-                index = i
-                break
-        if index <= 0:
-            return False
 
-        lower_value = self._session_energy_history[index - 1]
-        higher_value = self._session_energy_history[index]
+        if length_of_history >= 2:
+            # we approach finding SOC value in between session energy entries
+            index: int = -1
+            for i in range(length_of_history):
+                # find first value stored after soc was checked
+                if self._session_energy_history[i][0] >= self._soc_information[0]:
+                    index = i
+                    break
+            if index > 0:
+                lower_value = self._session_energy_history[index - 1]
+                higher_value = self._session_energy_history[index]
 
-        total_diff: timedelta = higher_value[0] - lower_value[0]
-        partial_diff: timedelta = self._soc_information[0] - lower_value[0]
-        factor: float = partial_diff.seconds / total_diff.seconds
-        self._session_energy_at_soc = lower_value[1] + factor * (
-            higher_value[1] - lower_value[1]
-        )
-        return True
+                total_diff: timedelta = higher_value[0] - lower_value[0]
+                partial_diff: timedelta = self._soc_information[0] - lower_value[0]
+                factor: float = partial_diff.seconds / total_diff.seconds
+                self._session_energy_at_soc = lower_value[1] + factor * (
+                    higher_value[1] - lower_value[1]
+                )
+                return True
+        # if we've reached that place it means that we have only one session energy entry OR soc time if before/after energy entries.
+        # if SOC was measured before first energy entry ( or after last energy entry)
+        # we will assume that _session_energy_at_soc can be calculated if time difference is not bigger than predefined time
+
+        if self._soc_information[0] <= self._session_energy_history[0][0]:
+            soc_before: timedelta = (
+                self._session_energy_history[0][0] - self._soc_information[0]
+            )
+            if soc_before < timedelta(seconds=SOC_BEFORE_ENERGY):
+                self._session_energy_at_soc = self._session_energy_history[0][1]
+                return True
+        elif (
+            self._soc_information[0]
+            >= self._session_energy_history[length_of_history - 1][0]
+        ):
+            soc_after: timedelta = (
+                self._soc_information[0]
+                - self._session_energy_history[length_of_history - 1][0]
+            )
+            if soc_after < timedelta(seconds=SOC_AFTER_ENERGY):
+                self._session_energy_at_soc = self._session_energy_history[
+                    length_of_history - 1
+                ][1]
+                return True
+        return False
 
     def get_added_energy(self) -> float:
         """Returns energy added since SOC was checked"""
@@ -261,8 +292,12 @@ class SLXChargingManager:
         if soc_update_time is None:
             soc_update_time = dt_util.utcnow()
 
-        self._energy_tracker.update_soc(soc_update_time, new_soc_level)
+        can_calculate: bool = self._energy_tracker.update_soc(
+            soc_update_time, new_soc_level
+        )
         self.timer_next_soc_request.schedule_timer()
+        if can_calculate is True:
+            self.recalculate_energy()
 
     def add_charger_energy(self, new_charger_energy: float, new_time: datetime = None):
         # Ignore charger information if car is not connected
