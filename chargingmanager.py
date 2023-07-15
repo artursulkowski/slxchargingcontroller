@@ -406,7 +406,7 @@ class SLXChargingManager:
                     if self.charge_method == CHR_METHOD_ECO:
                         new_evse_value = CHR_MODE_PVCHARGE
                     if self.charge_method == CHR_METHOD_FAST:
-                        if self._attr_bat_energy_estimated < self.target_soc:
+                        if self._attr_bat_soc_estimated < self.target_soc:
                             new_evse_value = CHR_MODE_NORMAL
                         else:
                             new_evse_value = CHR_MODE_STOPPED
