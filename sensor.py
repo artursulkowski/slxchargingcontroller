@@ -110,12 +110,13 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
         self._attr_should_poll = False
         self._manager = coordinator.charging_manager
         attribute_name: str = f"_attr_{self._key}"
-        if hasattr(self._manager, attribute_name):
-            _LOGGER.debug("Cool %s exists", attribute_name)
-        else:
-            # Log non-existing attribute. Useful for WIP when not all properies are defined yet.
+        if hasattr(self._manager, attribute_name) is False:
             self._attr_available = False
-            _LOGGER.warning("Attribute %s do not exist", attribute_name)
+            _LOGGER.warning(
+                "Setting entity %s, Attribute %s do not exist in coordinator",
+                self._key,
+                attribute_name,
+            )
 
     # Just a note - "native_value" is required property - so I need to implement it!
     # In first version we keep it simple and state is storing only native value (no attributes)
@@ -131,13 +132,14 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        _LOGGER.warning("Coordinator is updated!!")
         attribute_name = f"_attr_{self._key}"
         if self._attr_available:
             self._attr_state = getattr(self._manager, attribute_name)
             self.async_write_ha_state()
         else:
-            _LOGGER.warning("Attribute: %s do not exist", attribute_name)
+            _LOGGER.warning(
+                "Coordinator Update. Attribute: %s do not exist", attribute_name
+            )
 
     # TODO that prevision setting doesn't work. To be changed.
     # that is optionally property of entity. To check if this is used and working.

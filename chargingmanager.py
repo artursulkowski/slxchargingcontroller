@@ -10,6 +10,8 @@ from enum import Enum
 
 import homeassistant.util.dt as dt_util
 from .timer import SlxTimer
+import logging
+
 
 from .const import (
     CHARGER_MODES,
@@ -18,6 +20,7 @@ from .const import (
     CHR_MODE_PVCHARGE,
     CHR_MODE_NORMAL,
     CHR_MODE_UNKNOWN,
+    CHR_METHOD_MANUAL,
     CHR_METHOD_ECO,
     CHR_METHOD_FAST,
 )
@@ -29,6 +32,8 @@ SOC_BEFORE_ENERGY: int = 600  # seconds
 SOC_AFTER_ENERGY: int = (
     3600 * 4
 )  # seconds - we accept a difference of up to 4 hours. Bigger indicates that something terribly wrong was happening and we should not treat values as relevant.
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class CarConnectedStates(Enum):
@@ -49,8 +54,7 @@ class SlxEnergyTracker:
     Prepare more detailed description using https://peps.python.org/pep-0257/
     """
 
-    def __init__(self, logger):
-        self.logger = logger
+    def __init__(self):
         self._session_energy_history: list[tuple[datetime, float]] = []
         self._soc_information: tuple[datetime, float] = (None, None)
         self._session_energy_at_soc: float = None
@@ -98,6 +102,7 @@ class SlxEnergyTracker:
         # if SOC was measured before first energy entry ( or after last energy entry)
         # we will assume that _session_energy_at_soc can be calculated if time difference is not bigger than predefined time
 
+        # TODO - use slice notation "[-1:]"  OR  just [-1] to get the last element from the list (https://docs.python.org/2/tutorial/introduction.html#lists)
         if self._soc_information[0] <= self._session_energy_history[0][0]:
             soc_before: timedelta = (
                 self._session_energy_history[0][0] - self._soc_information[0]
@@ -155,11 +160,9 @@ class SlxEnergyTracker:
 class SLXChargingManager:
     """Class for Charging Manager"""
 
-    def __init__(self, hass: HomeAssistant, logger):
+    def __init__(self, hass: HomeAssistant):
         self.hass = hass
-        self.logger = logger
-
-        self._energy_tracker = SlxEnergyTracker(self.logger)
+        self._energy_tracker = SlxEnergyTracker()
 
         # status when car connected
         self._car_connected_status: CarConnectedStates = None
@@ -193,14 +196,12 @@ class SLXChargingManager:
         # timers for controller
         self.timer_soc_request_timeout = SlxTimer(
             self.hass,
-            self.logger,
             timedelta(seconds=SOC_REQUEST_TIMEOUT),
             self.callback_soc_timeout,
         )
 
         self.timer_next_soc_request = SlxTimer(
             self.hass,
-            self.logger,
             timedelta(minutes=NEXT_SOC_REQUEST_UPDATE),
             self.callback_bat_update,
         )
@@ -278,7 +279,11 @@ class SLXChargingManager:
     def charge_method(self, new_value: str):
         old_value = self._charge_method
         self._charge_method = new_value
-        if old_value is not None and old_value != new_value:
+        if (
+            old_value is not None
+            and old_value != new_value
+            and new_value != CHR_METHOD_MANUAL
+        ):
             self.calculate_evse_state()
 
     def set_soc_level(self, new_soc_level: float, new_soc_update: datetime = None):
@@ -331,7 +336,7 @@ class SLXChargingManager:
 
     def plug_connected(self):
         """called when plug is connected"""
-        self.logger.debug("Charging started")
+        _LOGGER.info("Plug connected")
         self._attr_charging_active = True
         self._car_connected_status = CarConnectedStates.ramping_up
         self._energy_tracker.clear_history()
@@ -343,7 +348,7 @@ class SLXChargingManager:
 
     def plug_disconnected(self):
         """called when plug got disconnected"""
-        self.logger.debug("Charging stopped")
+        _LOGGER.info("Plug disconnected")
         self._attr_charging_active = False
         self._car_connected_status = None
         # Here we can prepare summary of charging session.
@@ -352,26 +357,28 @@ class SLXChargingManager:
         """Requests now for Battery SOC update"""
         self._attr_request_soc_update += 1
 
-        self.logger.debug("start timeout for SOC update")
+        _LOGGER.info("Request SOC update and start timeout for SOC update")
         self.timer_soc_request_timeout.schedule_timer()
 
         # notify coordinator that we want to get SOC Update
         if self._callback_soc_requested is not None:
             self._callback_soc_requested(self._attr_request_soc_update)
         else:
-            self.logger.warning("Callback for SOC requested is not set up")
+            _LOGGER.warning("Callback for SOC requested is not set up")
 
     def request_evse_set(self, evse_mode: str):
         # for evse mode use CHARGER_MODES
+        _LOGGER.info("Request EVSE set to move %s", evse_mode)
+
         if self._callback_set_charger_mode is not None:
             self._callback_set_charger_mode(evse_mode)
         else:
-            self.logger.warning("Callback for setting charger mode is not set up")
+            _LOGGER.warning("Callback for setting charger mode is not set up")
 
     @callback
     def callback_soc_timeout(self, _) -> None:
         """Callback for SLXTimer - called when SOC Update timeouts"""
-        self.logger.debug("callback_soc_timeout")
+        _LOGGER.info("callback_soc_timeout")
         self.timer_next_soc_request.schedule_timer()
         if self._car_connected_status is CarConnectedStates.ramping_up:
             self._car_connected_status = CarConnectedStates.autopilot
@@ -380,13 +387,24 @@ class SLXChargingManager:
     @callback
     def callback_bat_update(self, _) -> None:
         """Callback for SLXTimer - called when we need to request another battery update"""
-        self.logger.debug("callback_bat_update")
+        _LOGGER.info("callback_bat_update")
         if self._attr_charging_active is True:
             self.request_bat_soc_update()
 
     def calculate_evse_state(self) -> None:
         """Method is called to recalculate if what state should the charger be depending on charging manager status"""
         new_evse_value: str = None
+
+        _LOGGER.info("Calculate EVSE state")
+        _LOGGER.debug("_car_connected_status: %s", self._car_connected_status)
+        _LOGGER.debug("_charge_method: %s", self._charge_method)
+        _LOGGER.debug("_attr_bat_soc_estimated: %.2f", self._attr_bat_soc_estimated)
+        _LOGGER.debug(
+            "_soc_minimum: %.1f, _soc_maximum: %.1f, _target_soc: %.1f",
+            self._soc_minimum,
+            self._soc_maximum,
+            self._target_soc,
+        )
 
         match self._car_connected_status:
             case CarConnectedStates.ramping_up:
@@ -420,9 +438,17 @@ class SLXChargingManager:
                             new_evse_value = CHR_MODE_PVCHARGE
 
         if new_evse_value is None:
+            _LOGGER.warning("Cannot define expected EVSE state")
             return  # nothing to do
 
         if self._evse_value is None or self._evse_value != new_evse_value:
             # we need to change charger setting
+            _LOGGER.info(
+                "Change EVSE state to %s (previous = %s)",
+                new_evse_value,
+                self._evse_value,
+            )
             self._evse_value = new_evse_value
             self.request_evse_set(new_evse_value)
+        else:
+            _LOGGER.debug("EVSE state didn't change %s", new_evse_value)
