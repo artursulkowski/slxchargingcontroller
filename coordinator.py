@@ -73,7 +73,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         )
 
         #
-        self.charging_manager = SLXChargingManager(hass, _LOGGER)
+        self.charging_manager = SLXChargingManager(hass)
         self.charging_manager.set_energy_estimated_callback(
             self.callback_energy_estimated
         )
@@ -94,11 +94,13 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         # TODO add checking if OpenEVSE was in fact setup through configuration
 
         if self.openevse is None:
+            _LOGGER.info(
+                "EVSE device integration not available, connecting to individual entities"
+            )
             self.unsub_openevse_session_energy = None
             current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
             if current_evse_energy != "":
-                _LOGGER.warning("Subscribing to")
-                _LOGGER.warning(current_evse_energy)
+                _LOGGER.info("Subscribe EVSE energy: %s ", current_evse_energy)
                 self.unsub_openevse_session_energy = async_track_state_change_event(
                     hass,
                     current_evse_energy,
@@ -110,8 +112,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 CONF_EVSE_PLUG_CONNECTED, ""
             )
             if current_evse_plug_connected != "":
-                _LOGGER.warning("Subscribing to")
-                _LOGGER.warning(current_evse_plug_connected)
+                _LOGGER.info(
+                    "Subscribe EVSE plug connected: %s ", current_evse_plug_connected
+                )
                 self.unsub_openevse_plug_connected = async_track_state_change_event(
                     hass,
                     current_evse_plug_connected,
@@ -123,8 +126,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.unsub_soc_level = None
         current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
         if current_soc_level != "":
-            _LOGGER.warning("Subscribing to")
-            _LOGGER.warning(current_soc_level)
+            _LOGGER.info("Subscribe car SOC level: %s ", current_soc_level)
             self.unsub_soc_level = async_track_state_change_event(
                 hass,
                 current_soc_level,
@@ -134,8 +136,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.unsub_soc_update = None
         current_soc_update = config_entry.options.get(CONF_CAR_SOC_UPDATE_TIME, "")
         if current_soc_update != "":
-            _LOGGER.warning("Subscribing to")
-            _LOGGER.warning(current_soc_update)
+            _LOGGER.info("Subscribe car SOC update time: %s ", current_soc_update)
             self.unsub_soc_update = async_track_state_change_event(
                 hass,
                 current_soc_update,
@@ -148,14 +149,12 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         self._timer_read_soc = SlxTimer(
             hass,
-            _LOGGER,
             timedelta(seconds=DELAYED_SOC_READING),
             self.callback_soc_delayed,
         )
 
         self._timer_service_soc_update = SlxTimer(
             hass,
-            _LOGGER,
             timedelta(seconds=RETRY_SOC_UPDATE),
             self.callback_soc_requested_retry,
         )
@@ -184,45 +183,46 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """Update data via library. Called by update_coordinator periodically."""
-        _LOGGER.warning("Update function called periodically - to IMPLEMENT IT!")
-        _LOGGER.debug(self)
+        _LOGGER.debug("Update function called periodically - can add some updates here")
 
     async def set_soc_min(self, value: float):
         # self.ent_soc_min = value
+        _LOGGER.info("User set entity value, soc_min = %.1f", value)
         self.data[ENT_SOC_LIMIT_MIN] = value
         self.charging_manager.soc_minimum = value
-        _LOGGER.debug(value)
 
     async def set_soc_max(self, value: float):
+        _LOGGER.info("User set entity value, soc_max = %.1f", value)
         self.data[ENT_SOC_LIMIT_MAX] = value
         self.charging_manager.soc_maximum = value
-        _LOGGER.debug(value)
 
     async def set_soc_target(self, value: float):
-        _LOGGER.debug("Setting SOC target to %i", value)
+        _LOGGER.info("User set entity value, soc_target = %.1f", value)
         self.data[ENT_SOC_TARGET] = value
         self.charging_manager.target_soc = value
 
     async def set_charger_select(self, value: str):
+        _LOGGER.info("User changed charger_select to %s", value)
         if self.data[ENT_CHARGE_METHOD] != CHR_METHOD_MANUAL:
             _LOGGER.warning(
                 "It is not possible to control charger is method is not set to MANUAL"
             )
             self.async_set_updated_data(self.data)
             return
-
         self.async_charger_select(value)
 
     def async_charger_select(self, value: str):
         self.data[ENT_CHARGE_MODE] = value
         if self.openevse is not None:
             self.openevse.set_charger_mode(value)
-            _LOGGER.debug("Setting charger to %s", value)
+            _LOGGER.info("Setting charger mode to %s", value)
         else:
-            _LOGGER.error("No charger to setup: %s", value)
+            _LOGGER.error(
+                "There is no charger to control (tried chang value to %s)", value
+            )
 
     async def set_charge_method(self, value: str):
-        _LOGGER.debug("Setting charging method to %s", value)
+        _LOGGER.info("User changed charging method to %s", value)
         self.data[ENT_CHARGE_METHOD] = value
         self.charging_manager.charge_method = value
 
@@ -263,7 +263,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     @callback
     def callback_soc_requested(self, request_counter: int = -1) -> None:
-        _LOGGER.debug("SOC Request number %d", request_counter)
+        _LOGGER.info("SOC Request number %d", request_counter)
         # TODO - now it is just hardcoded service. Later it should be set by configuration
 
         if self.hass.services.has_service("kia_uvo", "force_update"):
@@ -271,9 +271,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 self.hass.services.call, "kia_uvo", "force_update", {}
             )
         else:
-            _LOGGER.error("Force update service not found")
+            _LOGGER.warning("SOC Force Update service not found")
             if request_counter != -1:
-                _LOGGER.debug("Schedule retry of force update")
+                _LOGGER.info("Schedule retry of SOC force update")
                 self._timer_service_soc_update.schedule_timer()
 
     # TODO workaround because SLXTimer is passing DateTime as parametrs - this should be made more elegant
@@ -283,15 +283,15 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     @callback
     def callback_charger_mode(self, charger_mode: str) -> None:
-        _LOGGER.debug("Callback for change charger mode %s", charger_mode)
+        _LOGGER.info("Callback for changing charger mode to %s", charger_mode)
         if self.data[ENT_CHARGE_METHOD] == CHR_METHOD_MANUAL:
-            _LOGGER.debug(
+            _LOGGER.warning(
                 "Ignoring request to change charge mode to %s as manual charing method is selected",
                 charger_mode,
             )
             return
         if self.openevse is None:
-            _LOGGER.error("OpenEVSE isn't setup")
+            _LOGGER.error("Cannor handled charger mode change. OpenEVSE isn't setup")
             return
 
         if charger_mode in CHARGER_MODES:
@@ -300,66 +300,64 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     @callback
     def callback_charger_session_energy(self, event: Event) -> None:
-        """Handle child updates."""
-        _LOGGER.warning("Charger session energy changed")
-        _LOGGER.debug(event)
-        _LOGGER.debug(event.data["new_state"])
         value = self.extract_energy_entity(event.data["new_state"])
+        _LOGGER.info("Callback - charger session energy changed %.3f", value)
         self.charging_manager.add_charger_energy(value, event.time_fired)
 
     @callback
     def callback_charger_plug_connected(self, event: Event) -> None:
-        """Handle child updates."""
-        _LOGGER.debug("Charger plug changed")
         value = self.extract_bool_state(event.data["new_state"])
+        _LOGGER.info("Callback - charger plug connected %s", value)
         self.charging_manager.plug_status = value
 
     @callback
     def callback_soc_level(self, event: Event) -> None:
-        """Handle child updates."""
-        _LOGGER.warning("SOC level changed")
-        _LOGGER.debug(event)
-
         try:
             value = float(event.data["new_state"].state)
         except ValueError:
             value = None
 
         self._received_soc_level = value
-
         if self._delay_soc_update is False:
+            _LOGGER.info(
+                "Callback - soc level changed %d, charging managed updated", value
+            )
             self.charging_manager.set_soc_level(value)
+        else:
+            _LOGGER.info("Callback - soc level changed %d, delayed update", value)
 
     @callback
     def callback_soc_update(self, event: Event) -> None:
         """Handle SOC updated time"""
-        _LOGGER.debug("SOC update time changed")
-        _LOGGER.debug(event)
-
         try:
             state_value = event.data["new_state"].state
-            _LOGGER.debug(state_value)
+            _LOGGER.debug("SOC Update - state raw value: %s", state_value)
             value = dt_util.as_utc(dt_util.parse_datetime(state_value))
             # value = datetime.fromisoformat(state_value)
         except ValueError:
             value = None
 
         if value is None:
+            _LOGGER.warning(
+                "Callback soc update time, cannot parse the time %s", state_value
+            )
             return
+        else:
+            _LOGGER.info("Callback soc update time %s", value)
+
         self._received_soc_update = value
         if self._delay_soc_update:
+            _LOGGER.debug("Soc update - schedule timer for handling delayed update")
             self._timer_read_soc.schedule_timer()
 
     @callback
     def callback_soc_delayed(self, _) -> None:
-        _LOGGER.debug("Delayed soc reading")
+        _LOGGER.info("Callback for delayed soc update time")
         # Check if we have both values correct
         if self._received_soc_level is None:
             return
         if self._received_soc_update is None:
             return
-
-        # call
 
         _LOGGER.debug(
             "Passing SOC information, level %d , time %s",

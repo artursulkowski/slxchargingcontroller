@@ -63,9 +63,14 @@ class SLXOpenEVSE:
         self.hass = hass
         self.charge_mode: str = CHR_MODE_UNKNOWN
         self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
-        SLXOpenEVSE.check_all_entities(hass)
-        self.__subscribe_entity(WatchedEntities["sessionenergy"], cb_sessionenergy)
-        self.__subscribe_entity(WatchedEntities["plug"], cb_plug)
+        if SLXOpenEVSE.check_all_entities(hass) is False:
+            _LOGGER.error(
+                "OpenEVSE device wasn't found or there were not all required entities"
+            )
+        else:
+            self.__subscribe_entity(WatchedEntities["sessionenergy"], cb_sessionenergy)
+            self.__subscribe_entity(WatchedEntities["plug"], cb_plug)
+            _LOGGER.info("SLXOpenEVSE correctly initialized")
 
     def __subscribe_entity(
         self, entity_name: str, external_calback: Callable[[Event], Any]
@@ -101,7 +106,11 @@ class SLXOpenEVSE:
                 "select_option",
                 {"entity_id": SetEntities[name], "option": value},
             )
+            _LOGGER.debug("_select_option %s to %s", name, value)
             return True
+        else:
+            _LOGGER.warning("_select_option is invalid: %s", name)
+
         return False
 
     def _activate_override(self, charge: bool) -> bool:
@@ -110,6 +119,11 @@ class SLXOpenEVSE:
             value_to_set = "active"
         else:
             value_to_set = "disabled"
+        _LOGGER.debug(
+            "_activate_override - value: %s, device_id = %s",
+            value_to_set,
+            SLXOpenEVSE.openevse_id,
+        )
         self.hass.async_add_executor_job(
             self.hass.services.call,
             "openevse",
@@ -118,6 +132,7 @@ class SLXOpenEVSE:
         )
 
     def _clear_override(self) -> bool:
+        _LOGGER.debug("_clear_override, device_id = %s", SLXOpenEVSE.openevse_id)
         self.hass.async_add_executor_job(
             self.hass.services.call,
             "openevse",
@@ -127,8 +142,9 @@ class SLXOpenEVSE:
 
     def set_charger_mode(self, mode: str) -> None:
         if not mode in CHARGER_MODES:
-            _LOGGER.error("Invalid charing mode %s", mode)
+            _LOGGER.warning("Invalid charing mode %s", mode)
             return
+        _LOGGER.info("Set charger mode %s", mode)
 
         if mode == self.charge_mode:
             return
@@ -167,8 +183,9 @@ class SLXOpenEVSE:
                     SLXOpenEVSE.openevse_id = device_id
                     break
         if SLXOpenEVSE.openevse_id is None:
+            _LOGGER.warning("OpenEVSE device is not found")
             return
-        _LOGGER.debug("Found OpenEVSE %s", SLXOpenEVSE.openevse_id)
+        _LOGGER.info("Found OpenEVSE , device_id = %s", SLXOpenEVSE.openevse_id)
 
         entity_list: dict[str, EntityRegistry] = {}
         entityregistry = entity_registry.async_get(hass)
@@ -192,9 +209,8 @@ class SLXOpenEVSE:
             for entity_name in checking_list.values():
                 if entity_name in entity_list:
                     _LOGGER.info("Found %s", entity_name)
-                    _LOGGER.debug(entity_list[entity_name])
                 else:
-                    _LOGGER.error("Missing entity %s", entity_name)
+                    _LOGGER.warning("Missing entity %s", entity_name)
                     all_good = False
 
         return all_good

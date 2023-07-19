@@ -113,7 +113,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
 
         if user_input is None:
-            _LOGGER.debug("just returning the form")
+            _LOGGER.debug("Returning the form")
             return self.async_show_form(
                 step_id="user", data_schema=STEP_USER_DATA_SCHEMA
             )
@@ -121,7 +121,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         try:
-            _LOGGER.debug(" I will wait to validate input")
+            _LOGGER.debug("I will wait to validate input")
             info = await validate_input(self.hass, user_input)
         except CannotConnect:
             errors["base"] = "cannot_connect"
@@ -158,7 +158,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self.config_entry = config_entry
-        _LOGGER.warning("Entered Option Flow __init__")
+        _LOGGER.info("Entered Option Flow __init__")
         # https://developers.home-assistant.io/blog/2022/08/24/globally_accessible_hass/
         self.hass = async_get_hass()
 
@@ -250,9 +250,10 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
         # },
         descriptions = await async_get_all_descriptions(self.hass)
         my_integration: str = "kia_uvo"
-        if my_integration in descriptions:
-            json_string = json.dumps(descriptions[my_integration])
-            _LOGGER.debug(json_string)
+
+        # if my_integration in descriptions:
+        #     json_string = json.dumps(descriptions[my_integration])
+        #     _LOGGER.debug(json_string)
 
         # LOGGING ALL SERVICES
         # _LOGGER.debug(descriptions)
