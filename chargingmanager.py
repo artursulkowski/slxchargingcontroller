@@ -79,6 +79,9 @@ class SlxEnergyTracker:
         if self._soc_information[0] is None:
             return False
 
+        if length_of_history == 0:
+            return False
+
         if length_of_history >= 2:
             # we approach finding SOC value in between session energy entries
             index: int = -1
