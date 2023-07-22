@@ -79,6 +79,9 @@ class SlxEnergyTracker:
         if self._soc_information[0] is None:
             return False
 
+        if length_of_history == 0:
+            return False
+
         if length_of_history >= 2:
             # we approach finding SOC value in between session energy entries
             index: int = -1
@@ -305,9 +308,6 @@ class SLXChargingManager:
             self.recalculate_energy()
 
     def add_charger_energy(self, new_charger_energy: float, new_time: datetime = None):
-        # Ignore charger information if car is not connected
-        if self._attr_charging_active is not True:
-            return
         can_calculate: bool = self._energy_tracker.add_entry(new_charger_energy)
         if can_calculate is True:
             self.recalculate_energy()
@@ -339,7 +339,6 @@ class SLXChargingManager:
         _LOGGER.info("Plug connected")
         self._attr_charging_active = True
         self._car_connected_status = CarConnectedStates.ramping_up
-        self._energy_tracker.clear_history()
 
         # Request Bat SOC Update
         self.request_bat_soc_update()
@@ -351,7 +350,12 @@ class SLXChargingManager:
         _LOGGER.info("Plug disconnected")
         self._attr_charging_active = False
         self._car_connected_status = None
+
         # Here we can prepare summary of charging session.
+
+        # We are clearing energy history after plug is disconnected
+        # We cannot at the connection moment as we can get session energy before plug connected information
+        self._energy_tracker.clear_history()
 
     def request_bat_soc_update(self):
         """Requests now for Battery SOC update"""
