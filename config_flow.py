@@ -84,14 +84,10 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     """Validate the user input allows us to connect.
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
-    # TODO validate the data can be used to set up a connection.
-    # If your PyPI package is not built with async, pass your methods
-    # to the executor:
-    # await hass.async_add_executor_job(
-    #     your_validate_func, data["username"], data["password"]
-    # )
-    #   _LOGGER.error(data[CONF_SCAN_INTERVAL])
-    #   _LOGGER.error(data[CONF_CHARGE_TARGET])
+    # TODO we can calidate data provided by a user.
+    # This makes sense in case of e.g. connection, but not necessarily useful here.
+
+    # TODO check if it makes sense to return values. Maybe it should be modified input data instead
     # Return info that you want to store in the config entry.
     return {"title": "SLX Charging Controller", "extra field": "can I add extra text"}
 
@@ -162,12 +158,12 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
         # https://developers.home-assistant.io/blog/2022/08/24/globally_accessible_hass/
         self.hass = async_get_hass()
 
-        list_of_energy = self.find_entities_of_unit(self.hass, {"kWh", "Wh"})
-        list_of_percent = self.find_entities_of_unit(self.hass, {"%"})
-        list_of_plugs = self.find_entities_of_device_type(
+        list_of_energy = self.__find_entities_of_unit(self.hass, {"kWh", "Wh"})
+        list_of_percent = self.__find_entities_of_unit(self.hass, {"%"})
+        list_of_plugs = self.__find_entities_of_device_type(
             self.hass, "binary_sensor", {"plug"}
         )
-        list_of_timestamps = self.find_entities_of_device_type(
+        list_of_timestamps = self.__find_entities_of_device_type(
             self.hass, "sensor", {"timestamp"}
         )
 
@@ -189,7 +185,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                 default=current_car_soc_level,
                 description={"suggested_value": current_car_soc_level},
             )
-        ] = self.build_selector(list_of_percent)
+        ] = self.__build_selector(list_of_percent)
 
         current_car_soc_update_time = self.config_entry.options.get(
             CONF_CAR_SOC_UPDATE_TIME, ""
@@ -200,7 +196,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                 default=current_car_soc_update_time,
                 description={"suggested_value": current_car_soc_update_time},
             )
-        ] = self.build_selector(list_of_timestamps)
+        ] = self.__build_selector(list_of_timestamps)
 
         current_evse_energy = self.config_entry.options.get(
             CONF_EVSE_SESSION_ENERGY, ""
@@ -211,7 +207,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                 default=current_evse_energy,
                 description={"suggested_value": current_evse_energy},
             )
-        ] = self.build_selector(list_of_energy)
+        ] = self.__build_selector(list_of_energy)
 
         current_evse_plug_connected = self.config_entry.options.get(
             CONF_EVSE_PLUG_CONNECTED, ""
@@ -222,45 +218,15 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                 default=current_evse_plug_connected,
                 description={"suggested_value": current_evse_plug_connected},
             )
-        ] = self.build_selector(list_of_plugs)
+        ] = self.__build_selector(list_of_plugs)
 
         ## TODO replace with SLXOpenEVSE call for checking entities.
         SLXOpenEVSE.check_all_entities(self.hass)
         self.schema = vol.Schema(fields)
 
     async def async_step_init(self, user_input=None) -> FlowResult:
-        """controls step of configuration"""
-
-        # Key: kia_uvo
-        #     "force_update": {
-        #     "name": "",
-        #     "description": "Force your vehicle to update its data. All vehicles on the same account as the vehicle selected will be updated.",
-        #     "fields": {
-        #         "device_id": {
-        #             "name": "Vehicle",
-        #             "description": "Target vehicle",
-        #             "required": false,
-        #             "selector": {
-        #                 "device": {
-        #                     "integration": "kia_uvo"
-        #                 }
-        #             }
-        #         }
-        #     }
-        # },
-        descriptions = await async_get_all_descriptions(self.hass)
-        my_integration: str = "kia_uvo"
-
-        # if my_integration in descriptions:
-        #     json_string = json.dumps(descriptions[my_integration])
-        #     _LOGGER.debug(json_string)
-
-        # LOGGING ALL SERVICES
-        # _LOGGER.debug(descriptions)
-        # for key in descriptions:
-        #     _LOGGER.warning("Key: %s", key)
-        #     json_string = json.dumps(descriptions[key])
-        #     _LOGGER.debug(json_string)
+        # Probably needed for service setup.
+        # descriptions = await async_get_all_descriptions(self.hass)
 
         if user_input is not None:
             return self.async_create_entry(
@@ -268,7 +234,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
             )
         return self.async_show_form(step_id="init", data_schema=self.schema)
 
-    def find_entities_of_unit(
+    def __find_entities_of_unit(
         self, hass: HomeAssistant, units: set(str)
     ) -> dict[str, Any]:
         """Finds HA entities with specitic unit of measurement"""
@@ -286,7 +252,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                     )
         return output_dict
 
-    def find_entities_of_device_type(
+    def __find_entities_of_device_type(
         self, hass: HomeAssistant, domain: str, dev_classes: set(str)
     ) -> dict[str, Any]:
         """Finds HA entities with specific unit of measurement"""
@@ -303,7 +269,7 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                         output_dict[entity_id] = friendly_name + "(" + entity_id + ")"
         return output_dict
 
-    def build_selector(self, listEntities: dict[str, Any]) -> SelectSelector:
+    def __build_selector(self, listEntities: dict[str, Any]) -> SelectSelector:
         # https://www.home-assistant.io/docs/blueprint/selectors/#select-selector
         options_list = []
         for key, value in listEntities.items():
