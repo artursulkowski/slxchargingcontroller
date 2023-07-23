@@ -3,6 +3,8 @@
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers import entity_registry, device_registry
 from homeassistant.helpers.entity_registry import EntityRegistry
+from homeassistant.util import slugify
+
 import logging
 
 from typing import Any
@@ -53,6 +55,7 @@ class SLXOpenEVSE:
 
     openevse_id: str | None = None
     openevse_name: str | None = None
+    openevse_slugified_name: str | None = None
 
     def __init__(
         self,
@@ -81,8 +84,10 @@ class SLXOpenEVSE:
 
     @staticmethod
     def __traslate_entity_name(template_name: str) -> str:
-        if SLXOpenEVSE.openevse_name is not None:
-            result = template_name.format(devicename=SLXOpenEVSE.openevse_name)
+        if SLXOpenEVSE.openevse_slugified_name is not None:
+            result = template_name.format(
+                devicename=SLXOpenEVSE.openevse_slugified_name
+            )
         else:
             result = template_name.format(devicename="")
             _LOGGER.warning(
@@ -208,14 +213,16 @@ class SLXOpenEVSE:
                 if details_ok is True:
                     SLXOpenEVSE.openevse_id = device_id
                     SLXOpenEVSE.openevse_name = device.name
+                    SLXOpenEVSE.openevse_slugified_name = slugify(device.name.lower())
                     break
         if SLXOpenEVSE.openevse_id is None:
             _LOGGER.warning("OpenEVSE device is not found")
             return
         _LOGGER.info(
-            "Found OpenEVSE , device_id = %s, device_name = %s",
+            "Found OpenEVSE , device_id = %s, device_name = %s, slugified_name = %s",
             SLXOpenEVSE.openevse_id,
             SLXOpenEVSE.openevse_name,
+            SLXOpenEVSE.openevse_slugified_name,
         )
 
         entity_list: dict[str, EntityRegistry] = {}
