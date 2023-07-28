@@ -228,11 +228,38 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
         # Probably needed for service setup.
         # descriptions = await async_get_all_descriptions(self.hass)
 
+        # if user_input is not None:
+        #     return self.async_create_entry(
+        #         title=self.config_entry.title, data=user_input
+        #     )
+
+        if user_input is not None:
+            return self.async_show_menu(
+                step_id="init",
+                menu_options={
+                    "openevse": "Option OpenEVSE",
+                    "confirm": "Confirm the config",
+                },  # those are becoming steps which are function methods! So I don't need to handle everything in one method!
+            )
+        else:
+            return self.async_show_menu(
+                step_id="init",
+                menu_options={
+                    "openevse": "Option OpenEVSE",
+                },  # those are becoming steps which are function methods! So I don't need to handle everything in one method!
+            )
+        # return self.async_show_form(step_id="init", data_schema=self.schema)
+
+    async def async_step_openevse(self, user_input=None) -> FlowResult:
+        return self.async_show_form(
+            step_id="init", data_schema=self.schema
+        )  # step_id includes next step!
+
+    async def async_step_confirm(self, user_input=None) -> FlowResult:
         if user_input is not None:
             return self.async_create_entry(
                 title=self.config_entry.title, data=user_input
             )
-        return self.async_show_form(step_id="init", data_schema=self.schema)
 
     def __find_entities_of_unit(
         self, hass: HomeAssistant, units: set(str)
