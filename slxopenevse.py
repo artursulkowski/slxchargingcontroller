@@ -112,6 +112,10 @@ class SLXOpenEVSE:
             return self.hass.states.get(
                 SLXOpenEVSE.__traslate_entity_name(SetEntities[name])
             ).state
+        if name in WatchedEntities:
+            return self.hass.states.get(
+                SLXOpenEVSE.__traslate_entity_name(WatchedEntities[name])
+            ).state
         return None
 
     def _set_value(self, name: str, value: Any) -> bool:
@@ -198,6 +202,9 @@ class SLXOpenEVSE:
                 self._select_option("divertmode", "fast")
             self._activate_override(True)
             return
+
+    def get_session_energy(self) -> float:
+        return self._get_value("sessionenergy")
 
     @staticmethod
     def _find_openevse_entities(hass: HomeAssistant) -> dict[str, EntityRegistry]:
