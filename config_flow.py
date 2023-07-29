@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Dict, Optional, Union
 
 import voluptuous as vol
 
@@ -108,36 +108,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle the initial step."""
 
-        if user_input is None:
-            _LOGGER.debug("Returning the form")
-            return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
-            )
+        # if user_input is None:
+        #     _LOGGER.debug("Returning the form")
+        #     return self.async_show_form(
+        #         step_id="user", data_schema=STEP_USER_DATA_SCHEMA
+        #     )
 
-        errors = {}
+        # errors = {}
 
-        try:
-            _LOGGER.debug("I will wait to validate input")
-            info = await validate_input(self.hass, user_input)
-        except CannotConnect:
-            errors["base"] = "cannot_connect"
-        except InvalidAuth:
-            errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
-            errors["base"] = "unknown"
-        else:
-            _LOGGER.debug("System is ready for optional flow")
-            return self.async_create_entry(title=info["title"], data=user_input)
+        # try:
+        #     _LOGGER.debug("I will wait to validate input")
+        #     info = await validate_input(self.hass, user_input)
+        # except CannotConnect:
+        #     errors["base"] = "cannot_connect"
+        # except InvalidAuth:
+        #     errors["base"] = "invalid_auth"
+        # except Exception:  # pylint: disable=broad-except
+        #     _LOGGER.exception("Unexpected exception")
+        #     errors["base"] = "unknown"
+        # else:
+        #     _LOGGER.debug("System is ready for optional flow")
+        #     return self.async_create_entry(title=info["title"], data=user_input)
 
-        _LOGGER.debug("Empty user input let me display the form")
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-        )
+        # _LOGGER.debug("Empty user input let me display the form")
+        # return self.async_show_form(
+        #     step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        # )
+        return await SLXConfigFlow.config_flow(self, None, "user", "Title", user_input)
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> OptionsFlow:
         return SlxChargerOptionFlowHander(config_entry)
 
 
@@ -152,7 +153,7 @@ class InvalidAuth(HomeAssistantError):
 class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
     """Handes an optoin flow configuration"""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry
         _LOGGER.info("Entered Option Flow __init__")
         # https://developers.home-assistant.io/blog/2022/08/24/globally_accessible_hass/
@@ -233,6 +234,15 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
         #         title=self.config_entry.title, data=user_input
         #     )
 
+        if user_input is None:
+            return await SLXConfigFlow.config_flow(
+                self, self.config_entry, "init", "Title", user_input
+            )
+        else:
+            return await SLXConfigFlow.config_flow(
+                self, self.config_entry, "init", "Title2", user_input
+            )
+
         if user_input is not None:
             return self.async_show_menu(
                 step_id="init",
@@ -308,3 +318,233 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
             )
         )
         return built_selector
+
+
+######   NEW  CLASS FOR HANDLING FLOW ############
+
+
+class SLXConfigHelper:
+    @staticmethod
+    def find_entities_of_unit(hass: HomeAssistant, units: set(str)) -> dict[str, Any]:
+        """Finds HA entities with specitic unit of measurement"""
+        output_dict = {}
+        for state in hass.states.async_all():
+            entity_id = state.entity_id
+            if "unit_of_measurement" in state.attributes:
+                unit = state.attributes["unit_of_measurement"]
+                friendly_name = "noname"
+                if "friendly_name" in state.attributes:
+                    friendly_name = state.attributes["friendly_name"]
+                if unit in units:
+                    output_dict[entity_id] = (
+                        friendly_name + "[" + unit + "](" + entity_id + ")"
+                    )
+        return output_dict
+
+    @staticmethod
+    def find_entities_of_device_type(
+        hass: HomeAssistant, domain: str, dev_classes: set(str)
+    ) -> dict[str, Any]:
+        """Finds HA entities with specific unit of measurement"""
+        output_dict = {}
+        for state in hass.states.async_all():
+            entity_id = state.entity_id
+            if entity_id.startswith(domain):
+                if "device_class" in state.attributes:
+                    dev_class = state.attributes["device_class"]
+                    if dev_class in dev_classes:
+                        friendly_name = "noname_plug"
+                        if "friendly_name" in state.attributes:
+                            friendly_name = state.attributes["friendly_name"]
+                        output_dict[entity_id] = friendly_name + "(" + entity_id + ")"
+        return output_dict
+
+    @staticmethod
+    def build_selector(listEntities: dict[str, Any]) -> SelectSelector:
+        # https://www.home-assistant.io/docs/blueprint/selectors/#select-selector
+        options_list = []
+        for key, value in listEntities.items():
+            options_list.append(SelectOptionDict(value=key, label=value))
+        built_selector = SelectSelector(
+            SelectSelectorConfig(
+                options=options_list,
+                custom_value=False,
+                mode=SelectSelectorMode.DROPDOWN,
+            )
+        )
+        return built_selector
+
+
+class SLXConfigFlow:
+    config_step: str | None = None
+    combined_user_input: dict[str, Any] = {}
+
+    @staticmethod
+    def _get_schema_charger(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        # default_dict: Dict[str, Any],
+        config_entry: config_entries.ConfigEntry | None,
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        list_openevse: dict[str, Any] = {}
+
+        if SLXOpenEVSE.check_all_entities(hass):
+            device_id = SLXOpenEVSE.openevse_id
+            device_name = SLXOpenEVSE.openevse_name
+            list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
+
+        # list_openevse: dict[str, Any] = {"openevse.deviceID": "OpenEVSE ID"}
+        list_options: dict[str, Any] = list_openevse
+        list_options["manual"] = "Manual Configuraton"
+
+        CONF_CHARGER_TYPE = "evse_charger_type"
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+        fields[
+            vol.Required(
+                CONF_CHARGER_TYPE,
+                default="default value",
+                description={"suggested_value": "suggested value"},
+            )
+        ] = SLXConfigHelper.build_selector(list_options)
+        return vol.Schema(fields)
+
+    # def _get_schema_chargermanual(
+    #     hass: HomeAssistant,
+    #     user_input: Optional[Dict[str, Any]],
+    #     default_dict: dict[str, Any],
+    #     # pylint: disable-next=unused-argument
+    #     entry_id: str = None,
+    # ) -> vol.Schema:
+    #     CONF_CHARGER_VALUE = "evse_charger_value"
+    #     list_options: dict[str, Any] = {}
+    #     list_options["value_a"] = "Manual Value A"
+    #     list_options["value_b"] = "Manual Value B"
+    #     fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+    #     fields[
+    #         vol.Required(
+    #             CONF_CHARGER_VALUE,
+    #             default="default value",
+    #             description={"suggested_value": "suggested value"},
+    #         )
+    #     ] = SLXConfigFlow._build_selector(list_options)
+    #     return vol.Schema(fields)
+
+    def _get_schema_chargermanual(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        config_entry: config_entries.ConfigEntry | None,
+        # default_dict: dict[str, Any],
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        list_of_energy = SLXConfigHelper.find_entities_of_unit(hass, {"kWh", "Wh"})
+        #       list_of_percent = SLXConfigHelper.find_entities_of_unit(hass, {"%"})
+        list_of_plugs = SLXConfigHelper.find_entities_of_device_type(
+            hass, "binary_sensor", {"plug"}
+        )
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+
+        current_evse_energy = ""
+        if config_entry is not None:
+            current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
+
+        fields[
+            vol.Required(
+                CONF_EVSE_SESSION_ENERGY,
+                default=current_evse_energy,
+                description={"suggested_value": current_evse_energy},
+            )
+        ] = SLXConfigHelper.build_selector(list_of_energy)
+
+        current_evse_plug_connected = ""
+        if config_entry is not None:
+            current_evse_plug_connected = config_entry.options.get(
+                CONF_EVSE_PLUG_CONNECTED, ""
+            )
+
+        fields[
+            vol.Required(
+                CONF_EVSE_PLUG_CONNECTED,
+                default=current_evse_plug_connected,
+                description={"suggested_value": current_evse_plug_connected},
+            )
+        ] = SLXConfigHelper.build_selector(list_of_plugs)
+        return vol.Schema(fields)
+
+    @staticmethod
+    async def config_flow(
+        cf_object: Union[ConfigFlow, SlxChargerOptionFlowHander],
+        config_entry: config_entries.ConfigEntry | None,
+        step_id: str,
+        title: str,
+        user_input: dict[str, Any],
+        defaults: dict[str, Any] = None,
+        entry_id: str = None,
+    ):
+        """This is universal start of config flow"""
+        if user_input is None:
+            # we are starting the flow soclear all the data
+            SLXConfigFlow.combined_user_input = {}
+            SLXConfigFlow.config_step = "Charger_1"
+
+            ## do I need to build defaults at this stage?
+            # cf_object.
+
+        else:
+            SLXConfigFlow.combined_user_input.update(user_input)
+
+        current_step = SLXConfigFlow.config_step  # store in temporary variable
+
+        # cf_object.config_entry.
+
+        schema = None
+        match current_step:
+            case "Charger_1":
+                schema = SLXConfigFlow._get_schema_charger(
+                    cf_object.hass, user_input, config_entry, entry_id
+                )
+                SLXConfigFlow.config_step = "Charger_2"
+            case "Charger_2":
+                # TODO - I will need to put skipping of that step.
+                schema = SLXConfigFlow._get_schema_chargermanual(
+                    cf_object.hass, user_input, config_entry, entry_id
+                )
+                SLXConfigFlow.config_step = "Car_1"
+
+            case "Car_1":
+                _LOGGER.debug(SLXConfigFlow.combined_user_input)
+                title = "SLX Charging Controller"
+                if config_entry is not None:
+                    title = config_entry.title
+                return cf_object.async_create_entry(
+                    title=title,
+                    data=SLXConfigFlow.combined_user_input,
+                )
+
+        return cf_object.async_show_form(
+            step_id=step_id,
+            data_schema=schema,
+            # errors=errors,
+            # description_placeholders=description_placeholders,
+        )
+
+        ## NOTE - user input isn't passed from one step to another! So I probably need to store status in some static object within this method/class.
+        ## Should I also put information stored by user? YES! as cls.async_create_entry is finishing the whole flow!
+
+        # errors["error_type"] = "error_value"
+        # if user_input is not None:
+        #    cls.async_create_entry()
+
+        ### MY IDEA HOW TO HANDLE IT
+        ## Move methods into class (they will be static)
+        ## add static variable storing my internal step of the flow
+        ## Add static dictionary which will be gathering all or user_input which we gather after each step of configuration flow
+        ## I can rely on user_input is None to restart the flow!
+
+        # Use combined_user_input.update(user_input)
+
+        # Does it make sense to prepare the whole flow? Probably not!
