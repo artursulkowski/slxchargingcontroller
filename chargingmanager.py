@@ -26,7 +26,7 @@ from .const import (
 )
 
 SOC_REQUEST_TIMEOUT: int = 120  # seconds
-NEXT_SOC_REQUEST_UPDATE: int = 120  # minutes
+NEXT_SOC_REQUEST_UPDATE: int = 150  # minutes
 CHARGING_EFFICIENCY: float = 0.80  # assumed efficiency of charging.
 SOC_BEFORE_ENERGY: int = 600  # seconds
 SOC_AFTER_ENERGY: int = (
