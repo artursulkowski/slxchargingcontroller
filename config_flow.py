@@ -184,6 +184,10 @@ class SLXConfigHelper:
         return built_selector
 
 
+CONF_CHARGER_TYPE = "evse_charger_type"
+CONF_CAR_TYPE = "car_integration_type"
+
+
 class SLXConfigFlow:
     config_step: str | None = None
     combined_user_input: dict[str, Any] = {}
@@ -207,8 +211,6 @@ class SLXConfigFlow:
         # list_openevse: dict[str, Any] = {"openevse.deviceID": "OpenEVSE ID"}
         list_options: dict[str, Any] = list_openevse
         list_options["manual"] = "Manual Configuraton"
-
-        CONF_CHARGER_TYPE = "evse_charger_type"
 
         current_charger_type = ""
         if config_entry is not None:
@@ -282,8 +284,6 @@ class SLXConfigFlow:
         list_car_int: dict[str, Any] = {"hyundai_kia.device": "Hyundai/Kia"}
         list_options: dict[str, Any] = list_car_int
         list_options["manual"] = "Manual Configuraton"
-
-        CONF_CAR_TYPE = "car_integration_type"
 
         current_car_type = ""
         if config_entry is not None:
@@ -391,46 +391,58 @@ class SLXConfigFlow:
         current_step = SLXConfigFlow.config_step
 
         schema = None
-        match current_step:
-            case "Charger_1":
-                schema = SLXConfigFlow._get_schema_charger(
-                    cf_object.hass, user_input, config_entry, entry_id
-                )
-                SLXConfigFlow.config_step = "Charger_2"
-            case "Charger_2":
-                # TODO - I will need to put skipping of that step.
+        if current_step == "Charger_1":
+            schema = SLXConfigFlow._get_schema_charger(
+                cf_object.hass, user_input, config_entry, entry_id
+            )
+            SLXConfigFlow.config_step = "Charger_2"
+
+        if current_step == "Charger_2":
+            charger_type = ""
+            if CONF_CHARGER_TYPE in SLXConfigFlow.combined_user_input:
+                charger_type = SLXConfigFlow.combined_user_input[CONF_CHARGER_TYPE]
+            if charger_type == "manual":
                 schema = SLXConfigFlow._get_schema_chargermanual(
                     cf_object.hass, user_input, config_entry, entry_id
                 )
                 SLXConfigFlow.config_step = "Car_1"
+            else:
+                # jump straight to another step
+                current_step = "Car_1"
 
-            case "Car_1":
-                schema = SLXConfigFlow._get_schema_car(
-                    cf_object.hass, user_input, config_entry, entry_id
-                )
-                SLXConfigFlow.config_step = "Car_2"
+        if current_step == "Car_1":
+            schema = SLXConfigFlow._get_schema_car(
+                cf_object.hass, user_input, config_entry, entry_id
+            )
+            SLXConfigFlow.config_step = "Car_2"
 
-            case "Car_2":
+        if current_step == "Car_2":
+            car_type = ""
+            if CONF_CAR_TYPE in SLXConfigFlow.combined_user_input:
+                car_type = SLXConfigFlow.combined_user_input[CONF_CAR_TYPE]
+            if car_type == "manual":
                 schema = SLXConfigFlow._get_schema_carmanual(
                     cf_object.hass, user_input, config_entry, entry_id
                 )
                 SLXConfigFlow.config_step = "Car_3"
+            else:
+                current_step = "Car_3"
 
-            case "Car_3":
-                schema = SLXConfigFlow._get_schema_cardetails(
-                    cf_object.hass, user_input, config_entry, entry_id
-                )
-                SLXConfigFlow.config_step = "End"
+        if current_step == "Car_3":
+            schema = SLXConfigFlow._get_schema_cardetails(
+                cf_object.hass, user_input, config_entry, entry_id
+            )
+            SLXConfigFlow.config_step = "End"
 
-            case "End":
-                _LOGGER.debug(SLXConfigFlow.combined_user_input)
-                title = "SLX Charging Controller"
-                if config_entry is not None:
-                    title = config_entry.title
-                return cf_object.async_create_entry(
-                    title=title,
-                    data=SLXConfigFlow.combined_user_input,
-                )
+        if current_step == "End":
+            _LOGGER.debug(SLXConfigFlow.combined_user_input)
+            title = "SLX Charging Controller"
+            if config_entry is not None:
+                title = config_entry.title
+            return cf_object.async_create_entry(
+                title=title,
+                data=SLXConfigFlow.combined_user_input,
+            )
 
         return cf_object.async_show_form(
             step_id=step_id,
