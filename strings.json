@@ -3,9 +3,8 @@
     "step": {
       "user": {
         "data": {
-          "scan_interval": "description for scan interval",
-          "charge_target": "description for charge target interval",
-          "password": "[%key:common::config_flow::data::password%]"
+          "scan_interval": "[STR] SOC Scan Interval",
+          "charge_target": "[STR] Charge Target"
         }
       }
     },
@@ -21,14 +20,14 @@
   "options": {
     "step": {
       "init": {
-        "title": "My Configuration",
-        "description": "ble",
+        "title": "[STR] SLX Charging Controller",
+        "description": "[STR] Detailed configuration",
         "data": {
-          "battery_capacity": "bleble capacity",
-          "evse_session_energy": "ble energy",
-          "car_soc_level": "ble ble level",
-          "evse_plug_connected": "plug connected",
-          "car_soc_update_time": "battery soc update"
+          "battery_capacity": "[STR] Battery net capacity[kWh]",
+          "car_soc_level": "[STR] EV Battery SOC Level [%]",
+          "car_soc_update_time": "[STR] EV Battery SOC Update Time",
+          "evse_session_energy": "[STR] Charger Session Energy[Wh/kWh]",
+          "evse_plug_connected": "[STR] Charger Plug Connected"
         }
       }
     }

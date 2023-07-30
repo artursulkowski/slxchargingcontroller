@@ -10,10 +10,16 @@
         },
         "step": {
             "user": {
+                "title": "{config_step_title}",
+                "description": "{config_step_description}",
                 "data": {
-                    "charge_target": "description for charge target interval",
-                    "password": "Password",
-                    "scan_interval": "description for scan interval"
+                    "evse_charger_type": "EVSE integration/device",
+                    "evse_session_energy": "Charger Session Energy[Wh/kWh]",
+                    "evse_plug_connected": "Charger Plug Connected",
+                    "car_integration_type": "Car integration/device",
+                    "car_soc_level": "EV Battery SOC Level [%]",
+                    "car_soc_update_time": "EV Battery SOC Update Time",
+                    "battery_capacity": "Battery net capacity[kWh]"
                 }
             }
         }
@@ -21,15 +27,17 @@
     "options": {
         "step": {
             "init": {
+                "title": "{config_step_title}",
+                "description": "{config_step_description}",
                 "data": {
-                    "battery_capacity": "bleble capacity",
-                    "car_soc_level": "ble ble level",
-                    "car_soc_update_time": "battery soc update",
-                    "evse_plug_connected": "plug connected",
-                    "evse_session_energy": "ble energy"
-                },
-                "description": "ble",
-                "title": "My Configuration"
+                    "evse_charger_type": "EVSE integration/device",
+                    "evse_session_energy": "Charger Session Energy[Wh/kWh]",
+                    "evse_plug_connected": "Charger Plug Connected",
+                    "car_integration_type": "Car integration/device",
+                    "car_soc_level": "EV Battery SOC Level [%]",
+                    "car_soc_update_time": "EV Battery SOC Update Time",
+                    "battery_capacity": "Battery net capacity[kWh]"
+                }
             }
         }
     }

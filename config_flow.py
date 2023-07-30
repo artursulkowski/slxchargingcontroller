@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Dict, Optional, Union
 
 import voluptuous as vol
 
@@ -80,22 +80,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 #         return True
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
-    # TODO validate the data can be used to set up a connection.
-    # If your PyPI package is not built with async, pass your methods
-    # to the executor:
-    # await hass.async_add_executor_job(
-    #     your_validate_func, data["username"], data["password"]
-    # )
-    #   _LOGGER.error(data[CONF_SCAN_INTERVAL])
-    #   _LOGGER.error(data[CONF_CHARGE_TARGET])
-    # Return info that you want to store in the config entry.
-    return {"title": "SLX Charging Controller", "extra field": "can I add extra text"}
-
-
 BATTERY_SELECTOR = vol.All(
     NumberSelector(NumberSelectorConfig(mode=NumberSelectorMode.BOX, min=10, max=100)),
     vol.Coerce(int),
@@ -111,37 +95,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
-
-        if user_input is None:
-            _LOGGER.debug("Returning the form")
-            return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
-            )
-
-        errors = {}
-
-        try:
-            _LOGGER.debug("I will wait to validate input")
-            info = await validate_input(self.hass, user_input)
-        except CannotConnect:
-            errors["base"] = "cannot_connect"
-        except InvalidAuth:
-            errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
-            errors["base"] = "unknown"
-        else:
-            _LOGGER.debug("System is ready for optional flow")
-            return self.async_create_entry(title=info["title"], data=user_input)
-
-        _LOGGER.debug("Empty user input let me display the form")
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-        )
+        return await SLXConfigFlow.config_flow(self, None, "user", "Title", user_input)
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> OptionsFlow:
         return SlxChargerOptionFlowHander(config_entry)
 
 
@@ -156,121 +114,27 @@ class InvalidAuth(HomeAssistantError):
 class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
     """Handes an optoin flow configuration"""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry
         _LOGGER.info("Entered Option Flow __init__")
         # https://developers.home-assistant.io/blog/2022/08/24/globally_accessible_hass/
         self.hass = async_get_hass()
 
-        list_of_energy = self.find_entities_of_unit(self.hass, {"kWh", "Wh"})
-        list_of_percent = self.find_entities_of_unit(self.hass, {"%"})
-        list_of_plugs = self.find_entities_of_device_type(
-            self.hass, "binary_sensor", {"plug"}
-        )
-        list_of_timestamps = self.find_entities_of_device_type(
-            self.hass, "sensor", {"timestamp"}
-        )
-
-        # build form
-        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
-        fields[
-            vol.Required(
-                CONF_BATTERY_CAPACITY,
-                default=self.config_entry.options.get(
-                    CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY
-                ),
-            )
-        ] = BATTERY_SELECTOR
-
-        current_car_soc_level = self.config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
-        fields[
-            vol.Required(
-                CONF_CAR_SOC_LEVEL,
-                default=current_car_soc_level,
-                description={"suggested_value": current_car_soc_level},
-            )
-        ] = self.build_selector(list_of_percent)
-
-        current_car_soc_update_time = self.config_entry.options.get(
-            CONF_CAR_SOC_UPDATE_TIME, ""
-        )
-        fields[
-            vol.Required(
-                CONF_CAR_SOC_UPDATE_TIME,
-                default=current_car_soc_update_time,
-                description={"suggested_value": current_car_soc_update_time},
-            )
-        ] = self.build_selector(list_of_timestamps)
-
-        current_evse_energy = self.config_entry.options.get(
-            CONF_EVSE_SESSION_ENERGY, ""
-        )
-        fields[
-            vol.Required(
-                CONF_EVSE_SESSION_ENERGY,
-                default=current_evse_energy,
-                description={"suggested_value": current_evse_energy},
-            )
-        ] = self.build_selector(list_of_energy)
-
-        current_evse_plug_connected = self.config_entry.options.get(
-            CONF_EVSE_PLUG_CONNECTED, ""
-        )
-        fields[
-            vol.Required(
-                CONF_EVSE_PLUG_CONNECTED,
-                default=current_evse_plug_connected,
-                description={"suggested_value": current_evse_plug_connected},
-            )
-        ] = self.build_selector(list_of_plugs)
-
-        ## TODO replace with SLXOpenEVSE call for checking entities.
-        SLXOpenEVSE.check_all_entities(self.hass)
-        self.schema = vol.Schema(fields)
-
     async def async_step_init(self, user_input=None) -> FlowResult:
-        """controls step of configuration"""
+        # Probably needed for service setup.
+        # descriptions = await async_get_all_descriptions(self.hass)
 
-        # Key: kia_uvo
-        #     "force_update": {
-        #     "name": "",
-        #     "description": "Force your vehicle to update its data. All vehicles on the same account as the vehicle selected will be updated.",
-        #     "fields": {
-        #         "device_id": {
-        #             "name": "Vehicle",
-        #             "description": "Target vehicle",
-        #             "required": false,
-        #             "selector": {
-        #                 "device": {
-        #                     "integration": "kia_uvo"
-        #                 }
-        #             }
-        #         }
-        #     }
-        # },
-        descriptions = await async_get_all_descriptions(self.hass)
-        my_integration: str = "kia_uvo"
+        return await SLXConfigFlow.config_flow(
+            self, self.config_entry, "init", "Title", user_input
+        )
 
-        # if my_integration in descriptions:
-        #     json_string = json.dumps(descriptions[my_integration])
-        #     _LOGGER.debug(json_string)
 
-        # LOGGING ALL SERVICES
-        # _LOGGER.debug(descriptions)
-        # for key in descriptions:
-        #     _LOGGER.warning("Key: %s", key)
-        #     json_string = json.dumps(descriptions[key])
-        #     _LOGGER.debug(json_string)
+######   NEW  CLASS FOR HANDLING FLOW ############
 
-        if user_input is not None:
-            return self.async_create_entry(
-                title=self.config_entry.title, data=user_input
-            )
-        return self.async_show_form(step_id="init", data_schema=self.schema)
 
-    def find_entities_of_unit(
-        self, hass: HomeAssistant, units: set(str)
-    ) -> dict[str, Any]:
+class SLXConfigHelper:
+    @staticmethod
+    def find_entities_of_unit(hass: HomeAssistant, units: set(str)) -> dict[str, Any]:
         """Finds HA entities with specitic unit of measurement"""
         output_dict = {}
         for state in hass.states.async_all():
@@ -286,8 +150,9 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                     )
         return output_dict
 
+    @staticmethod
     def find_entities_of_device_type(
-        self, hass: HomeAssistant, domain: str, dev_classes: set(str)
+        hass: HomeAssistant, domain: str, dev_classes: set(str)
     ) -> dict[str, Any]:
         """Finds HA entities with specific unit of measurement"""
         output_dict = {}
@@ -303,7 +168,8 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
                         output_dict[entity_id] = friendly_name + "(" + entity_id + ")"
         return output_dict
 
-    def build_selector(self, listEntities: dict[str, Any]) -> SelectSelector:
+    @staticmethod
+    def build_selector(listEntities: dict[str, Any]) -> SelectSelector:
         # https://www.home-assistant.io/docs/blueprint/selectors/#select-selector
         options_list = []
         for key, value in listEntities.items():
@@ -311,7 +177,313 @@ class SlxChargerOptionFlowHander(config_entries.OptionsFlow):
         built_selector = SelectSelector(
             SelectSelectorConfig(
                 options=options_list,
+                custom_value=False,
                 mode=SelectSelectorMode.DROPDOWN,
             )
         )
         return built_selector
+
+
+CONF_CHARGER_TYPE = "evse_charger_type"
+CONF_CAR_TYPE = "car_integration_type"
+
+
+class SLXConfigFlow:
+    config_step: str | None = None
+    combined_user_input: dict[str, Any] = {}
+
+    @staticmethod
+    def _get_schema_charger(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        # default_dict: Dict[str, Any],
+        config_entry: config_entries.ConfigEntry | None,
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        list_openevse: dict[str, Any] = {}
+
+        if SLXOpenEVSE.check_all_entities(hass):
+            device_id = SLXOpenEVSE.openevse_id
+            device_name = SLXOpenEVSE.openevse_name
+            list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
+
+        # list_openevse: dict[str, Any] = {"openevse.deviceID": "OpenEVSE ID"}
+        list_options: dict[str, Any] = list_openevse
+        list_options["manual"] = "Manual Configuraton"
+
+        current_charger_type = ""
+        if config_entry is not None:
+            current_charger_type = config_entry.options.get(CONF_CHARGER_TYPE, "")
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+        fields[
+            vol.Required(
+                CONF_CHARGER_TYPE,
+                # default=current_charger_type,
+                description={"suggested_value": current_charger_type},
+            )
+        ] = SLXConfigHelper.build_selector(list_options)
+        return vol.Schema(fields)
+
+    def _get_schema_chargermanual(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        config_entry: config_entries.ConfigEntry | None,
+        # default_dict: dict[str, Any],
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        list_of_energy = SLXConfigHelper.find_entities_of_unit(hass, {"kWh", "Wh"})
+        #       list_of_percent = SLXConfigHelper.find_entities_of_unit(hass, {"%"})
+        list_of_plugs = SLXConfigHelper.find_entities_of_device_type(
+            hass, "binary_sensor", {"plug"}
+        )
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+
+        current_evse_energy = ""
+        if config_entry is not None:
+            current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
+
+        fields[
+            vol.Required(
+                CONF_EVSE_SESSION_ENERGY,
+                default=current_evse_energy,
+                description={"suggested_value": current_evse_energy},
+            )
+        ] = SLXConfigHelper.build_selector(list_of_energy)
+
+        current_evse_plug_connected = ""
+        if config_entry is not None:
+            current_evse_plug_connected = config_entry.options.get(
+                CONF_EVSE_PLUG_CONNECTED, ""
+            )
+
+        fields[
+            vol.Required(
+                CONF_EVSE_PLUG_CONNECTED,
+                default=current_evse_plug_connected,
+                description={"suggested_value": current_evse_plug_connected},
+            )
+        ] = SLXConfigHelper.build_selector(list_of_plugs)
+        return vol.Schema(fields)
+
+    @staticmethod
+    def _get_schema_car(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        # default_dict: Dict[str, Any],
+        config_entry: config_entries.ConfigEntry | None,
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        list_car_int: dict[str, Any] = {}
+
+        # TODO - to be replaced with finding Hyundai/Kia device:
+        list_car_int: dict[str, Any] = {"hyundai_kia.device": "Hyundai/Kia"}
+        list_options: dict[str, Any] = list_car_int
+        list_options["manual"] = "Manual Configuraton"
+
+        current_car_type = ""
+        if config_entry is not None:
+            current_car_type = config_entry.options.get(CONF_CAR_TYPE, "")
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+        fields[
+            vol.Required(
+                CONF_CAR_TYPE,
+                default=current_car_type,
+                description={"suggested_value": current_car_type},
+            )
+        ] = SLXConfigHelper.build_selector(list_options)
+        return vol.Schema(fields)
+
+    def _get_schema_carmanual(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        config_entry: config_entries.ConfigEntry | None,
+        # default_dict: dict[str, Any],
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        # list_of_energy = SLXConfigHelper.find_entities_of_unit(hass, {"kWh", "Wh"})
+        list_of_percent = SLXConfigHelper.find_entities_of_unit(hass, {"%"})
+        list_of_timestamps = SLXConfigHelper.find_entities_of_device_type(
+            hass, "sensor", {"timestamp"}
+        )
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+
+        current_car_soc_level = ""
+        if config_entry is not None:
+            current_car_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
+
+        fields[
+            vol.Required(
+                CONF_CAR_SOC_LEVEL,
+                default=current_car_soc_level,
+                description={"suggested_value": current_car_soc_level},
+            )
+        ] = SLXConfigHelper.build_selector(list_of_percent)
+
+        current_car_soc_update_time = ""
+        if config_entry is not None:
+            current_car_soc_update_time = config_entry.options.get(
+                CONF_CAR_SOC_UPDATE_TIME, ""
+            )
+
+        fields[
+            vol.Required(
+                CONF_CAR_SOC_UPDATE_TIME,
+                default=current_car_soc_update_time,
+                description={"suggested_value": current_car_soc_update_time},
+            )
+        ] = SLXConfigHelper.build_selector(list_of_timestamps)
+        return vol.Schema(fields)
+
+    def _get_schema_cardetails(
+        hass: HomeAssistant,
+        user_input: Optional[Dict[str, Any]],
+        config_entry: config_entries.ConfigEntry | None,
+        # default_dict: dict[str, Any],
+        # pylint: disable-next=unused-argument
+        entry_id: str = None,
+    ) -> vol.Schema:
+        BATTERY_SELECTOR = vol.All(
+            NumberSelector(
+                NumberSelectorConfig(mode=NumberSelectorMode.BOX, min=10, max=100)
+            ),
+            vol.Coerce(int),
+        )
+
+        fields: OrderedDict[vol.Marker, Any] = OrderedDict()
+
+        current_battery_capacity = ""
+        if config_entry is not None:
+            current_battery_capacity = config_entry.options.get(
+                CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY
+            )
+
+        fields[
+            vol.Required(CONF_BATTERY_CAPACITY, default=current_battery_capacity)
+        ] = BATTERY_SELECTOR
+        return vol.Schema(fields)
+
+    @staticmethod
+    async def config_flow(
+        cf_object: Union[ConfigFlow, SlxChargerOptionFlowHander],
+        config_entry: config_entries.ConfigEntry | None,
+        step_id: str,
+        title: str,
+        user_input: dict[str, Any],
+        defaults: dict[str, Any] = None,
+        entry_id: str = None,
+    ):
+        """This is universal start of config flow"""
+        if user_input is None:
+            # we are starting the flow soclear all the data
+            SLXConfigFlow.combined_user_input = {}
+            SLXConfigFlow.config_step = "Charger_1"
+        else:
+            SLXConfigFlow.combined_user_input.update(user_input)
+
+        current_step = SLXConfigFlow.config_step
+
+        last_step: bool = False
+        schema = None
+        my_description_placeholders = {
+            "config_step_description": "Config Step",
+            "config_step_title": "Setup SLX charging controller",
+        }
+        if current_step == "Charger_1":
+            schema = SLXConfigFlow._get_schema_charger(
+                cf_object.hass, user_input, config_entry, entry_id
+            )
+            my_description_placeholders["config_step_title"] = "Select charger device"
+            my_description_placeholders[
+                "config_step_description"
+            ] = "Select existing integration or Manual Configuration for integration through entities"
+            SLXConfigFlow.config_step = "Charger_2"
+
+        if current_step == "Charger_2":
+            charger_type = ""
+            if CONF_CHARGER_TYPE in SLXConfigFlow.combined_user_input:
+                charger_type = SLXConfigFlow.combined_user_input[CONF_CHARGER_TYPE]
+            if charger_type == "manual":
+                my_description_placeholders[
+                    "config_step_title"
+                ] = "Charger integration through entities"
+                my_description_placeholders[
+                    "config_step_description"
+                ] = "Select entities including required information"
+                schema = SLXConfigFlow._get_schema_chargermanual(
+                    cf_object.hass, user_input, config_entry, entry_id
+                )
+                SLXConfigFlow.config_step = "Car_1"
+            else:
+                # jump straight to another step
+                current_step = "Car_1"
+
+        if current_step == "Car_1":
+            my_description_placeholders["config_step_title"] = "Select car integration"
+            my_description_placeholders[
+                "config_step_description"
+            ] = "Select existing integration or Manual Configuration for integration through entities"
+            schema = SLXConfigFlow._get_schema_car(
+                cf_object.hass, user_input, config_entry, entry_id
+            )
+            SLXConfigFlow.config_step = "Car_2"
+
+        if current_step == "Car_2":
+            car_type = ""
+            if CONF_CAR_TYPE in SLXConfigFlow.combined_user_input:
+                car_type = SLXConfigFlow.combined_user_input[CONF_CAR_TYPE]
+            if car_type == "manual":
+                my_description_placeholders[
+                    "config_step_title"
+                ] = "Manual car integration"
+                my_description_placeholders[
+                    "config_step_description"
+                ] = "Select entities including required information"
+                schema = SLXConfigFlow._get_schema_carmanual(
+                    cf_object.hass, user_input, config_entry, entry_id
+                )
+                SLXConfigFlow.config_step = "Car_3"
+            else:
+                current_step = "Car_3"
+
+        if current_step == "Car_3":
+            my_description_placeholders["config_step_title"] = "Car details"
+            my_description_placeholders[
+                "config_step_description"
+            ] = "Last step! Just few details about your car"
+            schema = SLXConfigFlow._get_schema_cardetails(
+                cf_object.hass, user_input, config_entry, entry_id
+            )
+            last_step = True
+            SLXConfigFlow.config_step = "End"
+
+        if current_step == "End":
+            _LOGGER.debug(SLXConfigFlow.combined_user_input)
+            title = "SLX Charging Controller"
+            if config_entry is not None:
+                title = config_entry.title
+                return cf_object.async_create_entry(
+                    title=title,
+                    data=SLXConfigFlow.combined_user_input,
+                )
+            else:
+                return cf_object.async_create_entry(
+                    title=title,
+                    data=SLXConfigFlow.combined_user_input,  # can skip - put just empty data into entry
+                    options=SLXConfigFlow.combined_user_input,
+                )
+
+        return cf_object.async_show_form(
+            step_id=step_id,
+            data_schema=schema,
+            last_step=last_step,
+            # errors=errors,
+            description_placeholders=my_description_placeholders,
+        )
