@@ -10,9 +10,16 @@
         },
         "step": {
             "user": {
+                "title": "{config_step_title}",
+                "description": "{config_step_description}",
                 "data": {
-                    "scan_interval": "(Obsolete)SOC Scan Interval",
-                    "charge_target": "(Obsolete)Charge Target"
+                    "evse_charger_type": "EVSE integration/device",
+                    "evse_session_energy": "Charger Session Energy[Wh/kWh]",
+                    "evse_plug_connected": "Charger Plug Connected",
+                    "car_integration_type": "Car integration/device",
+                    "car_soc_level": "EV Battery SOC Level [%]",
+                    "car_soc_update_time": "EV Battery SOC Update Time",
+                    "battery_capacity": "Battery net capacity[kWh]"
                 }
             }
         }
@@ -20,14 +27,16 @@
     "options": {
         "step": {
             "init": {
-                "title": "SLX Charging Controller",
-                "description": "Detailed configuration",
+                "title": "{config_step_title}",
+                "description": "{config_step_description}",
                 "data": {
-                    "battery_capacity": "Battery net capacity[kWh]",
+                    "evse_charger_type": "EVSE integration/device",
+                    "evse_session_energy": "Charger Session Energy[Wh/kWh]",
+                    "evse_plug_connected": "Charger Plug Connected",
+                    "car_integration_type": "Car integration/device",
                     "car_soc_level": "EV Battery SOC Level [%]",
                     "car_soc_update_time": "EV Battery SOC Update Time",
-                    "evse_session_energy": "Charger Session Energy[Wh/kWh]",
-                    "evse_plug_connected": "Charger Plug Connected"
+                    "battery_capacity": "Battery net capacity[kWh]"
                 }
             }
         }

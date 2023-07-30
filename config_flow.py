@@ -390,11 +390,20 @@ class SLXConfigFlow:
 
         current_step = SLXConfigFlow.config_step
 
+        last_step: bool = False
         schema = None
+        my_description_placeholders = {
+            "config_step_description": "Config Step",
+            "config_step_title": "Setup SLX charging controller",
+        }
         if current_step == "Charger_1":
             schema = SLXConfigFlow._get_schema_charger(
                 cf_object.hass, user_input, config_entry, entry_id
             )
+            my_description_placeholders["config_step_title"] = "Select charger device"
+            my_description_placeholders[
+                "config_step_description"
+            ] = "Select existing integration or Manual Configuration for integration through entities"
             SLXConfigFlow.config_step = "Charger_2"
 
         if current_step == "Charger_2":
@@ -402,6 +411,12 @@ class SLXConfigFlow:
             if CONF_CHARGER_TYPE in SLXConfigFlow.combined_user_input:
                 charger_type = SLXConfigFlow.combined_user_input[CONF_CHARGER_TYPE]
             if charger_type == "manual":
+                my_description_placeholders[
+                    "config_step_title"
+                ] = "Charger integration through entities"
+                my_description_placeholders[
+                    "config_step_description"
+                ] = "Select entities including required information"
                 schema = SLXConfigFlow._get_schema_chargermanual(
                     cf_object.hass, user_input, config_entry, entry_id
                 )
@@ -411,6 +426,10 @@ class SLXConfigFlow:
                 current_step = "Car_1"
 
         if current_step == "Car_1":
+            my_description_placeholders["config_step_title"] = "Select car integration"
+            my_description_placeholders[
+                "config_step_description"
+            ] = "Select existing integration or Manual Configuration for integration through entities"
             schema = SLXConfigFlow._get_schema_car(
                 cf_object.hass, user_input, config_entry, entry_id
             )
@@ -421,6 +440,12 @@ class SLXConfigFlow:
             if CONF_CAR_TYPE in SLXConfigFlow.combined_user_input:
                 car_type = SLXConfigFlow.combined_user_input[CONF_CAR_TYPE]
             if car_type == "manual":
+                my_description_placeholders[
+                    "config_step_title"
+                ] = "Manual car integration"
+                my_description_placeholders[
+                    "config_step_description"
+                ] = "Select entities including required information"
                 schema = SLXConfigFlow._get_schema_carmanual(
                     cf_object.hass, user_input, config_entry, entry_id
                 )
@@ -429,9 +454,14 @@ class SLXConfigFlow:
                 current_step = "Car_3"
 
         if current_step == "Car_3":
+            my_description_placeholders["config_step_title"] = "Car details"
+            my_description_placeholders[
+                "config_step_description"
+            ] = "Last step! Just few details about your car"
             schema = SLXConfigFlow._get_schema_cardetails(
                 cf_object.hass, user_input, config_entry, entry_id
             )
+            last_step = True
             SLXConfigFlow.config_step = "End"
 
         if current_step == "End":
@@ -447,6 +477,7 @@ class SLXConfigFlow:
         return cf_object.async_show_form(
             step_id=step_id,
             data_schema=schema,
+            last_step=last_step,
             # errors=errors,
-            # description_placeholders=description_placeholders,
+            description_placeholders=my_description_placeholders,
         )
