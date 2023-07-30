@@ -469,10 +469,16 @@ class SLXConfigFlow:
             title = "SLX Charging Controller"
             if config_entry is not None:
                 title = config_entry.title
-            return cf_object.async_create_entry(
-                title=title,
-                data=SLXConfigFlow.combined_user_input,
-            )
+                return cf_object.async_create_entry(
+                    title=title,
+                    data=SLXConfigFlow.combined_user_input,
+                )
+            else:
+                return cf_object.async_create_entry(
+                    title=title,
+                    data=SLXConfigFlow.combined_user_input,  # can skip - put just empty data into entry
+                    options=SLXConfigFlow.combined_user_input,
+                )
 
         return cf_object.async_show_form(
             step_id=step_id,
