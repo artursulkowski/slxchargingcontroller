@@ -2,9 +2,8 @@
 
 DOMAIN = "slxchargingcontroller"
 
-CONF_CHARGE_TARGET: str = "charge_target"
-DEFAULT_CHARGE_TARGET: int = 80
-DEFAULT_SCAN_INTERVAL: int = 5
+CONF_CHARGER_TYPE = "evse_charger_type"
+CONF_CAR_TYPE = "car_integration_type"
 
 CONF_BATTERY_CAPACITY: str = "battery_capacity"
 DEFAULT_BATTERY_CAPACITY: int = 64
@@ -14,6 +13,9 @@ CONF_EVSE_PLUG_CONNECTED: str = "evse_plug_connected"
 
 CONF_CAR_SOC_LEVEL: str = "car_soc_level"
 CONF_CAR_SOC_UPDATE_TIME: str = "car_soc_update_time"
+
+## Configuration - not modified in user's config flow.
+DEFAULT_SCAN_INTERVAL: int = 10
 
 # Entities - sensor
 BATTERY_ENERGY_ESTIMATION = "bat_energy_estimated"

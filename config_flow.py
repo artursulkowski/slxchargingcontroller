@@ -45,10 +45,9 @@ from homeassistant.const import (
 from .slxopenevse import SLXOpenEVSE
 
 from .const import (
-    CONF_CHARGE_TARGET,
-    DEFAULT_CHARGE_TARGET,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    CONF_CHARGER_TYPE,
+    CONF_CAR_TYPE,
     CONF_BATTERY_CAPACITY,
     DEFAULT_BATTERY_CAPACITY,
     CONF_EVSE_SESSION_ENERGY,
@@ -60,13 +59,6 @@ from .const import (
 import json
 
 _LOGGER = logging.getLogger(__name__)
-
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_SCAN_INTERVAL): int,
-        vol.Required(CONF_CHARGE_TARGET): int,
-    }
-)
 
 # class PlaceholderHub:
 #     """Placeholder class to make tests pass.
@@ -184,10 +176,6 @@ class SLXConfigHelper:
         return built_selector
 
 
-CONF_CHARGER_TYPE = "evse_charger_type"
-CONF_CAR_TYPE = "car_integration_type"
-
-
 class SLXConfigFlow:
     config_step: str | None = None
     combined_user_input: dict[str, Any] = {}
@@ -203,12 +191,23 @@ class SLXConfigFlow:
     ) -> vol.Schema:
         list_openevse: dict[str, Any] = {}
 
-        if SLXOpenEVSE.check_all_entities(hass):
-            device_id = SLXOpenEVSE.openevse_id
-            device_name = SLXOpenEVSE.openevse_name
-            list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
+        openevse_devices = SLXOpenEVSE.find_openevse_devices(hass)
 
-        # list_openevse: dict[str, Any] = {"openevse.deviceID": "OpenEVSE ID"}
+        for device_id, device_name in openevse_devices.items():
+            if SLXOpenEVSE.check_all_entities(hass, device_id, device_name):
+                list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
+                _LOGGER.info(
+                    "Found correct OpenEVSE deviceID: %s, deviceName: %s",
+                    device_id,
+                    device_name,
+                )
+            else:
+                _LOGGER.warning(
+                    "Found OpenEVSE device but without proper entities, deviceID: %s, deviceName: %s",
+                    device_id,
+                    device_name,
+                )
+
         list_options: dict[str, Any] = list_openevse
         list_options["manual"] = "Manual Configuraton"
 

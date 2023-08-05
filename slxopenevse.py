@@ -53,41 +53,54 @@ _LOGGER = logging.getLogger(__name__)
 class SLXOpenEVSE:
     """Class for OpenEVSE connection"""
 
-    openevse_id: str | None = None
-    openevse_name: str | None = None
-    openevse_slugified_name: str | None = None
-
     def __init__(
         self,
         hass: HomeAssistant,
         cb_sessionenergy: Callable[[Event], Any],
         cb_plug: Callable[[Event], Any],
+        device_id: str | None = None,
     ):
         _LOGGER.debug("SLXOpenEVSE")
 
         self.hass = hass
+
+        self.openevse_id = device_id
+        self.openevse_name = SLXOpenEVSE.get_openevse_devicename(hass, device_id)
+        if self.openevse_name is None:
+            _LOGGER.error("OpenEVSE device with device_id=%s does not exist", device_id)
+
+        self.openevse_slugified_name = SLXOpenEVSE._slugify_device_name(
+            self.openevse_name
+        )
+
         self.charge_mode: str = CHR_MODE_UNKNOWN
         self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
-        if SLXOpenEVSE.check_all_entities(hass) is False:
+        if (
+            SLXOpenEVSE.check_all_entities(hass, self.openevse_id, self.openevse_name)
+            is False
+        ):
             _LOGGER.error(
                 "OpenEVSE device wasn't found or there were not all required entities"
             )
         else:
             self.__subscribe_entity(
-                SLXOpenEVSE.__traslate_entity_name(WatchedEntities["sessionenergy"]),
+                SLXOpenEVSE.__traslate_entity_name(
+                    WatchedEntities["sessionenergy"], self.openevse_slugified_name
+                ),
                 cb_sessionenergy,
             )
             self.__subscribe_entity(
-                SLXOpenEVSE.__traslate_entity_name(WatchedEntities["plug"]), cb_plug
+                SLXOpenEVSE.__traslate_entity_name(
+                    WatchedEntities["plug"], self.openevse_slugified_name
+                ),
+                cb_plug,
             )
             _LOGGER.info("SLXOpenEVSE correctly initialized")
 
     @staticmethod
-    def __traslate_entity_name(template_name: str) -> str:
-        if SLXOpenEVSE.openevse_slugified_name is not None:
-            result = template_name.format(
-                devicename=SLXOpenEVSE.openevse_slugified_name
-            )
+    def __traslate_entity_name(template_name: str, openevse_slugified_name: str) -> str:
+        if openevse_slugified_name is not None:
+            result = template_name.format(devicename=openevse_slugified_name)
         else:
             result = template_name.format(devicename="")
             _LOGGER.warning(
@@ -104,25 +117,36 @@ class SLXOpenEVSE:
         )
 
     def _get_value(self, name: str) -> Any:
+        translated_name: str | None = None
+
         if name in GetEntities:
-            return self.hass.states.get(
-                SLXOpenEVSE.__traslate_entity_name(GetEntities[name])
-            ).state
+            translated_name = SLXOpenEVSE.__traslate_entity_name(
+                GetEntities[name], self.openevse_slugified_name
+            )
         if name in SetEntities:
-            return self.hass.states.get(
-                SLXOpenEVSE.__traslate_entity_name(SetEntities[name])
-            ).state
+            translated_name = SLXOpenEVSE.__traslate_entity_name(
+                SetEntities[name], self.openevse_slugified_name
+            )
         if name in WatchedEntities:
-            return self.hass.states.get(
-                SLXOpenEVSE.__traslate_entity_name(WatchedEntities[name])
-            ).state
-        return None
+            translated_name = SLXOpenEVSE.__traslate_entity_name(
+                WatchedEntities[name], self.openevse_slugified_name
+            )
+
+        if translated_name is None:
+            return None
+
+        entity_state = self.hass.states.get(translated_name)
+        if entity_state is None:
+            return None
+        return entity_state.state
 
     def _set_value(self, name: str, value: Any) -> bool:
         if name in SetEntities:
             self.hass.async_add_executor_job(
                 self.hass.states.set,
-                SLXOpenEVSE.__traslate_entity_name(SetEntities[name]),
+                SLXOpenEVSE.__traslate_entity_name(
+                    SetEntities[name], self.openevse_slugified_name
+                ),
                 value,
                 {},
             )
@@ -137,7 +161,9 @@ class SLXOpenEVSE:
                 "select",
                 "select_option",
                 {
-                    "entity_id": SLXOpenEVSE.__traslate_entity_name(SetEntities[name]),
+                    "entity_id": SLXOpenEVSE.__traslate_entity_name(
+                        SetEntities[name], self.openevse_slugified_name
+                    ),
                     "option": value,
                 },
             )
@@ -207,43 +233,62 @@ class SLXOpenEVSE:
         return self._get_value("sessionenergy")
 
     @staticmethod
-    def _find_openevse_entities(hass: HomeAssistant) -> dict[str, EntityRegistry]:
+    def _slugify_device_name(device_name: str) -> str:
+        return slugify(device_name.lower())
+
+    @staticmethod
+    def find_openevse_devices(hass: HomeAssistant) -> dict[str, str]:
+        """Finds list of compatible OpenEVSE devices
+        :returns: Dictionary of [deviceID, DeviceName]
+        """
+        devices_found: dict[str, str] = {}
         deviceregistry = device_registry.async_get(hass)
-        #  openevse_id = None
         for device_id in deviceregistry.devices:
             device = deviceregistry.async_get(device_id)
             if device.manufacturer == "OpenEVSE":
-                # check all other information
-                details_ok = True
-                if device.model != "openevse_wifi_v1":
-                    details_ok = False
-                if details_ok is True:
-                    SLXOpenEVSE.openevse_id = device_id
-                    SLXOpenEVSE.openevse_name = device.name
-                    SLXOpenEVSE.openevse_slugified_name = slugify(device.name.lower())
-                    break
-        if SLXOpenEVSE.openevse_id is None:
-            _LOGGER.warning("OpenEVSE device is not found")
-            return
-        _LOGGER.info(
-            "Found OpenEVSE , device_id = %s, device_name = %s, slugified_name = %s",
-            SLXOpenEVSE.openevse_id,
-            SLXOpenEVSE.openevse_name,
-            SLXOpenEVSE.openevse_slugified_name,
-        )
+                if device.model == "openevse_wifi_v1":
+                    devices_found[device_id] = device.name
+        return devices_found
 
+    @staticmethod
+    def _find_device_entities(
+        hass: HomeAssistant, device_id: str
+    ) -> dict[str, EntityRegistry] | None:
+        """
+        Lists all entities belonging to a given device. It's universal and requires only device_id
+        :returns: None if no device was found. Otherwise returns list of entities.
+        """
         entity_list: dict[str, EntityRegistry] = {}
         entityregistry = entity_registry.async_get(hass)
         for entity_id in entityregistry.entities:
             entity = entityregistry.async_get(entity_id)
-            if entity.device_id == SLXOpenEVSE.openevse_id:
+            if entity.device_id == device_id:
                 entity_list[entity.entity_id] = entity
         return entity_list
 
     @staticmethod
-    def check_all_entities(hass: HomeAssistant) -> bool:
+    def get_openevse_devicename(hass: HomeAssistant, device_id: str) -> str | None:
+        found_devices = SLXOpenEVSE.find_openevse_devices(hass)
+        if device_id in found_devices:
+            return found_devices[device_id]
+        else:
+            return None
+
+    @staticmethod
+    def check_all_entities(
+        hass: HomeAssistant, device_id: str, device_name: str | None = None
+    ) -> bool:
         """Checks if we have OpenEVSE device with all required entities"""
-        entity_list = SLXOpenEVSE._find_openevse_entities(hass)
+
+        if device_name is None:
+            device_name = SLXOpenEVSE.get_openevse_devicename(hass, device_id)
+
+        if device_name is None:
+            return False
+
+        slugified_device_name = SLXOpenEVSE._slugify_device_name(device_name)
+
+        entity_list = SLXOpenEVSE._find_device_entities(hass, device_id)
         if not entity_list:
             return False
 
@@ -255,7 +300,9 @@ class SLXOpenEVSE:
         for checking_list in to_check_list:
             for entity_template in checking_list.values():
                 list_of_entity_names.append(
-                    SLXOpenEVSE.__traslate_entity_name(entity_template)
+                    SLXOpenEVSE.__traslate_entity_name(
+                        entity_template, slugified_device_name
+                    )
                 )
 
         for entity_name in list_of_entity_names:

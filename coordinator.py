@@ -23,9 +23,8 @@ from homeassistant.core import (
 )
 
 from .const import (
-    CONF_CHARGE_TARGET,
-    DEFAULT_CHARGE_TARGET,
     DEFAULT_SCAN_INTERVAL,
+    CONF_CHARGER_TYPE,
     CONF_EVSE_SESSION_ENERGY,
     CONF_EVSE_PLUG_CONNECTED,
     CONF_CAR_SOC_LEVEL,
@@ -65,13 +64,13 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         self.platforms: set[str] = set()
+
+        # currenlty CONF_SCAN_INTERVAL is not set in configuration flow.
         self.scan_interval: int = (
             config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL) * 60
         )
-        self.target_charge: int = config_entry.options.get(
-            CONF_CHARGE_TARGET, DEFAULT_CHARGE_TARGET
-        )
 
+        self.hass = hass
         #
         self.charging_manager = SLXChargingManager(hass)
         self.charging_manager.set_energy_estimated_callback(
@@ -83,20 +82,15 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
         self.charging_manager.battery_capacity = bat_capacity
 
+        ### Connect to EVSE
         self.openevse = None
-
-        self.openevse = SLXOpenEVSE(
-            hass,
-            cb_sessionenergy=self.callback_charger_session_energy,
-            cb_plug=self.callback_charger_plug_connected,
-        )
+        charger_config = config_entry.options.get(CONF_CHARGER_TYPE, "")
+        evse_configured: bool = self.create_auto_evse(charger_config)
 
         # TODO add checking if OpenEVSE was in fact setup through configuration
 
-        if self.openevse is None:
-            _LOGGER.info(
-                "EVSE device integration not available, connecting to individual entities"
-            )
+        if evse_configured is False:
+            _LOGGER.info("Manual EVSE integration, connecting to individual entities")
             self.unsub_openevse_session_energy = None
             current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
             if current_evse_energy != "":
@@ -120,6 +114,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                     current_evse_plug_connected,
                     self.callback_charger_plug_connected,
                 )
+
+        ### Connect to Car integration
         self._received_soc_level: float = None
         self._received_soc_update: datetime = None
 
@@ -159,6 +155,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             self.callback_soc_requested_retry,
         )
 
+        ################### Continue configuration
+
         super().__init__(
             hass,
             _LOGGER,
@@ -168,6 +166,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         )
 
         ## TODO - workaround - I need to initialize data after parent class. This is not a typical flow.
+        ## If not done at that order parent's init will overwrite self.data
         self.data: dict(str, any) = {}
         self.data[ENT_CHARGE_MODE] = CHR_MODE_UNKNOWN
         self.data[ENT_CHARGE_METHOD] = CHR_METHOD_ECO
@@ -180,6 +179,42 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.soc_maximum = self.data[ENT_SOC_LIMIT_MAX]
         self.charging_manager.target_soc = self.data[ENT_SOC_TARGET]
         self.charging_manager.charge_method = self.data[ENT_CHARGE_METHOD]
+
+    def create_auto_evse(self, configuration: str) -> bool:
+        if configuration == "manual":
+            return False
+
+        conf_list: list[str] = configuration.split(".")
+        if len(conf_list) != 2:
+            _LOGGER.error("Invalid syntax of evse Config: %s", configuration)
+            return True
+
+        if conf_list[0] != "openevse":
+            _LOGGER.error(
+                "Only OpenEVSE devices are supported. Config: %s", configuration
+            )
+            return True
+
+        device_id = conf_list[1]
+
+        # double check if OpenEVSE with that deviceID exists
+        if SLXOpenEVSE.check_all_entities(self.hass, device_id) == True:
+            self.openevse = SLXOpenEVSE(
+                self.hass,
+                cb_sessionenergy=self.callback_charger_session_energy,
+                cb_plug=self.callback_charger_plug_connected,
+                device_id=device_id,
+            )
+            return True
+        else:
+            _LOGGER.error(
+                "Error initializing OpenEVSE, proper device isn't found. Config: %s",
+                configuration,
+            )
+            # we return True as still OpenEVSE shall be created and we should not use Manual configuration.
+            return True
+
+        return True
 
     async def _async_update_data(self):
         """Update data via library. Called by update_coordinator periodically."""
