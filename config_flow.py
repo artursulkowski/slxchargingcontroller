@@ -43,6 +43,7 @@ from homeassistant.const import (
 )
 
 from .slxopenevse import SLXOpenEVSE
+from .slxkiahyundai import SLXKiaHyundai
 
 from .const import (
     DOMAIN,
@@ -384,6 +385,10 @@ class SLXConfigFlow:
             # we are starting the flow soclear all the data
             SLXConfigFlow.combined_user_input = {}
             SLXConfigFlow.config_step = "Charger_1"
+
+            # await SLXKiaHyundai.find_kiahyundai_devices(cf_object.hass)
+            SLXKiaHyundai.sync_find_kiahyundai_devices(cf_object.hass)
+
         else:
             SLXConfigFlow.combined_user_input.update(user_input)
 
