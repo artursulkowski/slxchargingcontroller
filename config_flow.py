@@ -386,8 +386,11 @@ class SLXConfigFlow:
             SLXConfigFlow.combined_user_input = {}
             SLXConfigFlow.config_step = "Charger_1"
 
-            # await SLXKiaHyundai.find_kiahyundai_devices(cf_object.hass)
-            SLXKiaHyundai.sync_find_kiahyundai_devices(cf_object.hass)
+            # Test only - flow for SLXKiaHyundai
+            result = await SLXKiaHyundai.async_find_integration(cf_object.hass)
+            _LOGGER.warning(result)
+            SLXKiaHyundai.check_entites_and_devices(cf_object.hass)
+            _LOGGER.warning("######")
 
         else:
             SLXConfigFlow.combined_user_input.update(user_input)
