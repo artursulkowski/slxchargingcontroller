@@ -43,12 +43,12 @@ from homeassistant.const import (
 )
 
 from .slxopenevse import SLXOpenEVSE
+from .slxkiahyundai import SLXKiaHyundai
 
 from .const import (
-    CONF_CHARGE_TARGET,
-    DEFAULT_CHARGE_TARGET,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    CONF_CHARGER_TYPE,
+    CONF_CAR_TYPE,
     CONF_BATTERY_CAPACITY,
     DEFAULT_BATTERY_CAPACITY,
     CONF_EVSE_SESSION_ENERGY,
@@ -61,13 +61,6 @@ import json
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_SCAN_INTERVAL): int,
-        vol.Required(CONF_CHARGE_TARGET): int,
-    }
-)
-
 # class PlaceholderHub:
 #     """Placeholder class to make tests pass.
 #     TODO Remove this placeholder class and replace with things from your PyPI package.
@@ -78,12 +71,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 #     async def authenticate(self, username: str, password: str) -> bool:
 #         """Test if we can authenticate with the host."""
 #         return True
-
-
-BATTERY_SELECTOR = vol.All(
-    NumberSelector(NumberSelectorConfig(mode=NumberSelectorMode.BOX, min=10, max=100)),
-    vol.Coerce(int),
-)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -169,23 +156,26 @@ class SLXConfigHelper:
         return output_dict
 
     @staticmethod
-    def build_selector(listEntities: dict[str, Any]) -> SelectSelector:
+    def build_selector(
+        listEntities: dict[str, Any], dropdown: bool = True
+    ) -> SelectSelector:
         # https://www.home-assistant.io/docs/blueprint/selectors/#select-selector
         options_list = []
         for key, value in listEntities.items():
             options_list.append(SelectOptionDict(value=key, label=value))
+
+        if dropdown is True:
+            mode = SelectSelectorMode.DROPDOWN
+        else:
+            mode = SelectSelectorMode.LIST
         built_selector = SelectSelector(
             SelectSelectorConfig(
                 options=options_list,
                 custom_value=False,
-                mode=SelectSelectorMode.DROPDOWN,
+                mode=mode,
             )
         )
         return built_selector
-
-
-CONF_CHARGER_TYPE = "evse_charger_type"
-CONF_CAR_TYPE = "car_integration_type"
 
 
 class SLXConfigFlow:
@@ -203,12 +193,23 @@ class SLXConfigFlow:
     ) -> vol.Schema:
         list_openevse: dict[str, Any] = {}
 
-        if SLXOpenEVSE.check_all_entities(hass):
-            device_id = SLXOpenEVSE.openevse_id
-            device_name = SLXOpenEVSE.openevse_name
-            list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
+        openevse_devices = SLXOpenEVSE.find_openevse_devices(hass)
 
-        # list_openevse: dict[str, Any] = {"openevse.deviceID": "OpenEVSE ID"}
+        for device_id, device_name in openevse_devices.items():
+            if SLXOpenEVSE.check_all_entities(hass, device_id, device_name):
+                list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
+                _LOGGER.info(
+                    "Found correct OpenEVSE deviceID: %s, deviceName: %s",
+                    device_id,
+                    device_name,
+                )
+            else:
+                _LOGGER.warning(
+                    "Found OpenEVSE device but without proper entities, deviceID: %s, deviceName: %s",
+                    device_id,
+                    device_name,
+                )
+
         list_options: dict[str, Any] = list_openevse
         list_options["manual"] = "Manual Configuraton"
 
@@ -223,7 +224,7 @@ class SLXConfigFlow:
                 # default=current_charger_type,
                 description={"suggested_value": current_charger_type},
             )
-        ] = SLXConfigHelper.build_selector(list_options)
+        ] = SLXConfigHelper.build_selector(list_options, dropdown=False)
         return vol.Schema(fields)
 
     def _get_schema_chargermanual(
@@ -270,7 +271,7 @@ class SLXConfigFlow:
         return vol.Schema(fields)
 
     @staticmethod
-    def _get_schema_car(
+    async def _get_schema_car(
         hass: HomeAssistant,
         user_input: Optional[Dict[str, Any]],
         # default_dict: Dict[str, Any],
@@ -278,11 +279,15 @@ class SLXConfigFlow:
         # pylint: disable-next=unused-argument
         entry_id: str = None,
     ) -> vol.Schema:
-        list_car_int: dict[str, Any] = {}
+        list_options: dict[str, str] = {}
+        integration_found = await SLXKiaHyundai.async_find_integration(hass)
+        if integration_found is True:
+            found_kia_hyundai = SLXKiaHyundai.find_devices_check_entites(hass)
+            for device_id, device_name in found_kia_hyundai.items():
+                list_options[
+                    f"kia_hyundai.{device_id}"
+                ] = f"[Kia/Hyundai] {device_name}"
 
-        # TODO - to be replaced with finding Hyundai/Kia device:
-        list_car_int: dict[str, Any] = {"hyundai_kia.device": "Hyundai/Kia"}
-        list_options: dict[str, Any] = list_car_int
         list_options["manual"] = "Manual Configuraton"
 
         current_car_type = ""
@@ -296,18 +301,15 @@ class SLXConfigFlow:
                 default=current_car_type,
                 description={"suggested_value": current_car_type},
             )
-        ] = SLXConfigHelper.build_selector(list_options)
+        ] = SLXConfigHelper.build_selector(list_options, dropdown=False)
         return vol.Schema(fields)
 
     def _get_schema_carmanual(
         hass: HomeAssistant,
         user_input: Optional[Dict[str, Any]],
         config_entry: config_entries.ConfigEntry | None,
-        # default_dict: dict[str, Any],
-        # pylint: disable-next=unused-argument
         entry_id: str = None,
     ) -> vol.Schema:
-        # list_of_energy = SLXConfigHelper.find_entities_of_unit(hass, {"kWh", "Wh"})
         list_of_percent = SLXConfigHelper.find_entities_of_unit(hass, {"%"})
         list_of_timestamps = SLXConfigHelper.find_entities_of_device_type(
             hass, "sensor", {"timestamp"}
@@ -334,7 +336,7 @@ class SLXConfigFlow:
             )
 
         fields[
-            vol.Required(
+            vol.Optional(
                 CONF_CAR_SOC_UPDATE_TIME,
                 default=current_car_soc_update_time,
                 description={"suggested_value": current_car_soc_update_time},
@@ -346,8 +348,6 @@ class SLXConfigFlow:
         hass: HomeAssistant,
         user_input: Optional[Dict[str, Any]],
         config_entry: config_entries.ConfigEntry | None,
-        # default_dict: dict[str, Any],
-        # pylint: disable-next=unused-argument
         entry_id: str = None,
     ) -> vol.Schema:
         BATTERY_SELECTOR = vol.All(
@@ -385,6 +385,13 @@ class SLXConfigFlow:
             # we are starting the flow soclear all the data
             SLXConfigFlow.combined_user_input = {}
             SLXConfigFlow.config_step = "Charger_1"
+
+            # Test only - flow for SLXKiaHyundai
+            # result = await SLXKiaHyundai.async_find_integration(cf_object.hass)
+            # _LOGGER.warning(result)
+            # SLXKiaHyundai.check_entites_and_devices(cf_object.hass)
+            # _LOGGER.warning("######")
+
         else:
             SLXConfigFlow.combined_user_input.update(user_input)
 
@@ -430,7 +437,7 @@ class SLXConfigFlow:
             my_description_placeholders[
                 "config_step_description"
             ] = "Select existing integration or Manual Configuration for integration through entities"
-            schema = SLXConfigFlow._get_schema_car(
+            schema = await SLXConfigFlow._get_schema_car(
                 cf_object.hass, user_input, config_entry, entry_id
             )
             SLXConfigFlow.config_step = "Car_2"

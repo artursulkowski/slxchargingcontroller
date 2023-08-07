@@ -23,11 +23,11 @@ from homeassistant.core import (
 )
 
 from .const import (
-    CONF_CHARGE_TARGET,
-    DEFAULT_CHARGE_TARGET,
     DEFAULT_SCAN_INTERVAL,
+    CONF_CHARGER_TYPE,
     CONF_EVSE_SESSION_ENERGY,
     CONF_EVSE_PLUG_CONNECTED,
+    CONF_CAR_TYPE,
     CONF_CAR_SOC_LEVEL,
     CONF_CAR_SOC_UPDATE_TIME,
     CONF_BATTERY_CAPACITY,
@@ -46,6 +46,7 @@ from .const import (
 from .chargingmanager import SLXChargingManager
 from .timer import SlxTimer
 from .slxopenevse import SLXOpenEVSE
+from .slxkiahyundai import SLXKiaHyundai
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
@@ -65,13 +66,13 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         self.platforms: set[str] = set()
+
+        # currenlty CONF_SCAN_INTERVAL is not set in configuration flow.
         self.scan_interval: int = (
             config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL) * 60
         )
-        self.target_charge: int = config_entry.options.get(
-            CONF_CHARGE_TARGET, DEFAULT_CHARGE_TARGET
-        )
 
+        self.hass = hass
         #
         self.charging_manager = SLXChargingManager(hass)
         self.charging_manager.set_energy_estimated_callback(
@@ -83,20 +84,15 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         bat_capacity = config_entry.options.get(CONF_BATTERY_CAPACITY, 10)
         self.charging_manager.battery_capacity = bat_capacity
 
+        ### Connect to EVSE
         self.openevse = None
-
-        self.openevse = SLXOpenEVSE(
-            hass,
-            cb_sessionenergy=self.callback_charger_session_energy,
-            cb_plug=self.callback_charger_plug_connected,
-        )
+        charger_config = config_entry.options.get(CONF_CHARGER_TYPE, "")
+        evse_configured: bool = self.create_auto_evse(charger_config)
 
         # TODO add checking if OpenEVSE was in fact setup through configuration
 
-        if self.openevse is None:
-            _LOGGER.info(
-                "EVSE device integration not available, connecting to individual entities"
-            )
+        if evse_configured is False:
+            _LOGGER.info("Manual EVSE integration, connecting to individual entities")
             self.unsub_openevse_session_energy = None
             current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
             if current_evse_energy != "":
@@ -120,32 +116,45 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                     current_evse_plug_connected,
                     self.callback_charger_plug_connected,
                 )
+
+        ### Connect to Car integration
         self._received_soc_level: float = None
         self._received_soc_update: datetime = None
-
-        self.unsub_soc_level = None
-        current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
-        if current_soc_level != "":
-            _LOGGER.info("Subscribe car SOC level: %s ", current_soc_level)
-            self.unsub_soc_level = async_track_state_change_event(
-                hass,
-                current_soc_level,
-                self.callback_soc_level,
-            )
-
-        self.unsub_soc_update = None
-        current_soc_update = config_entry.options.get(CONF_CAR_SOC_UPDATE_TIME, "")
-        if current_soc_update != "":
-            _LOGGER.info("Subscribe car SOC update time: %s ", current_soc_update)
-            self.unsub_soc_update = async_track_state_change_event(
-                hass,
-                current_soc_update,
-                self.callback_soc_update,
-            )
-
         self._delay_soc_update: bool = False
-        if self.unsub_soc_update is not None and self.unsub_soc_level is not None:
+
+        car_created: bool = False
+        car_config = config_entry.options.get(CONF_CAR_TYPE, "")
+        self.car = None
+        car_created = self.create_auto_car(car_config)
+
+        if car_created is True:
+            # so far I am supporting only Hyundai so this can be enabled automatically.
+            # Later this should be one of properties taken from car integration.
             self._delay_soc_update = True
+        else:
+            # Manuale setup usingentities
+            self.unsub_soc_level = None
+            current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
+            if current_soc_level != "":
+                _LOGGER.info("Subscribe car SOC level: %s ", current_soc_level)
+                self.unsub_soc_level = async_track_state_change_event(
+                    hass,
+                    current_soc_level,
+                    self.callback_soc_level,
+                )
+
+            self.unsub_soc_update = None
+            current_soc_update = config_entry.options.get(CONF_CAR_SOC_UPDATE_TIME, "")
+            if current_soc_update != "":
+                _LOGGER.info("Subscribe car SOC update time: %s ", current_soc_update)
+                self.unsub_soc_update = async_track_state_change_event(
+                    hass,
+                    current_soc_update,
+                    self.callback_soc_update,
+                )
+
+            if self.unsub_soc_update is not None and self.unsub_soc_level is not None:
+                self._delay_soc_update = True
 
         self._timer_read_soc = SlxTimer(
             hass,
@@ -158,6 +167,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             timedelta(seconds=RETRY_SOC_UPDATE),
             self.callback_soc_requested_retry,
         )
+        ################### Continue configuration
 
         super().__init__(
             hass,
@@ -168,6 +178,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         )
 
         ## TODO - workaround - I need to initialize data after parent class. This is not a typical flow.
+        ## If not done at that order parent's init will overwrite self.data
         self.data: dict(str, any) = {}
         self.data[ENT_CHARGE_MODE] = CHR_MODE_UNKNOWN
         self.data[ENT_CHARGE_METHOD] = CHR_METHOD_ECO
@@ -180,6 +191,71 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.soc_maximum = self.data[ENT_SOC_LIMIT_MAX]
         self.charging_manager.target_soc = self.data[ENT_SOC_TARGET]
         self.charging_manager.charge_method = self.data[ENT_CHARGE_METHOD]
+
+    def create_auto_evse(self, configuration: str) -> bool:
+        if configuration == "manual":
+            return False
+
+        conf_list: list[str] = configuration.split(".")
+        if len(conf_list) != 2:
+            _LOGGER.error("Invalid syntax of evse Config: %s", configuration)
+            return True
+
+        if conf_list[0] != "openevse":
+            _LOGGER.error(
+                "Only OpenEVSE devices are supported. Config: %s", configuration
+            )
+            return True
+
+        device_id = conf_list[1]
+
+        # double check if OpenEVSE with that deviceID exists
+        if SLXOpenEVSE.check_all_entities(self.hass, device_id) == True:
+            self.openevse = SLXOpenEVSE(
+                self.hass,
+                cb_sessionenergy=self.callback_charger_session_energy,
+                cb_plug=self.callback_charger_plug_connected,
+                device_id=device_id,
+            )
+            return True
+        else:
+            _LOGGER.error(
+                "Error initializing OpenEVSE, proper device isn't found. Config: %s",
+                configuration,
+            )
+            # we return True as still OpenEVSE shall be created and we should not use Manual configuration.
+            return True
+
+        return True
+
+    def create_auto_car(self, configuration: str) -> bool:
+        if configuration == "manual":
+            return False
+
+        conf_list: list[str] = configuration.split(".")
+        if len(conf_list) != 2:
+            _LOGGER.error("Invalid syntax of car Config: %s", configuration)
+            return True
+
+        if conf_list[0] != "kia_hyundai":
+            _LOGGER.error(
+                "Only Kia/Hyundai devices are supported. Config: %s", configuration
+            )
+            return True
+
+        device_id = conf_list[1]
+
+        found_devices = SLXKiaHyundai.find_devices_check_entites(self.hass)
+        if device_id not in found_devices:
+            _LOGGER.error(
+                "DeviceId =%s not found in Kia/Hyundai devices list", device_id
+            )
+            return True
+
+        self.car = SLXKiaHyundai(
+            self.hass, self.callback_soc_level, self.callback_soc_update, device_id
+        )
+        return True
 
     async def _async_update_data(self):
         """Update data via library. Called by update_coordinator periodically."""
@@ -266,15 +342,23 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.info("SOC Request number %d", request_counter)
         # TODO - now it is just hardcoded service. Later it should be set by configuration
 
-        if self.hass.services.has_service("kia_uvo", "force_update"):
-            self.hass.async_add_executor_job(
-                self.hass.services.call, "kia_uvo", "force_update", {}
-            )
+        if self.car is not None:
+            if self.car.request_force_update() is False:
+                _LOGGER.warning("SOC Force Update service not found")
+                if request_counter != -1:
+                    _LOGGER.info("Schedule retry of SOC force update")
+                    self._timer_service_soc_update.schedule_timer()
         else:
-            _LOGGER.warning("SOC Force Update service not found")
-            if request_counter != -1:
-                _LOGGER.info("Schedule retry of SOC force update")
-                self._timer_service_soc_update.schedule_timer()
+            # keep old call
+            if self.hass.services.has_service("kia_uvo", "force_update"):
+                self.hass.async_add_executor_job(
+                    self.hass.services.call, "kia_uvo", "force_update", {}
+                )
+            else:
+                _LOGGER.warning("SOC Force Update service not found")
+                if request_counter != -1:
+                    _LOGGER.info("Schedule retry of SOC force update")
+                    self._timer_service_soc_update.schedule_timer()
 
     # TODO workaround because SLXTimer is passing DateTime as parametrs - this should be made more elegant
     @callback
@@ -313,7 +397,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         if self.openevse is not None:
             energy = self.openevse.get_session_energy()
             if energy is not None:
-                self.charging_manager.add_charger_energy(value)
+                self.charging_manager.add_charger_energy(energy)
 
     @callback
     def callback_soc_level(self, event: Event) -> None:
