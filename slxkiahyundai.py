@@ -24,6 +24,7 @@ from homeassistant.core import (
 _LOGGER = logging.getLogger(__name__)
 
 KIAHYUNDAI_NAME = "kia_uvo"
+FORCE_UPDATE_SERVICE = "force_update"
 
 
 # entities we subscribe to
@@ -118,7 +119,7 @@ class SLXKiaHyundai:
         return all_good
 
     @staticmethod
-    def check_entites_and_devices(hass: HomeAssistant) -> dict[str, str]:
+    def find_devices_check_entites(hass: HomeAssistant) -> dict[str, str]:
         """Finds list of compatible KiaHyundai devices
         :returns: Dictionary of [deviceID, DeviceName]
         """
@@ -154,120 +155,52 @@ class SLXKiaHyundai:
                 )
         return devices_found
 
-    # THAT DOESN'T WORK
-    # @staticmethod
-    # def _find_integration(hass: HomeAssistant, domain_name: str) -> bool:
-    #     # loop = asyncio.get_event_loop()
-    #     # task = loop.create_task(SLXKiaHyundai.jump_function(hass))
+    def __subscribe_entity(
+        self, entity_name: str, external_calback: Callable[[Event], Any]
+    ) -> None:
+        self.unsub_dict[entity_name] = async_track_state_change_event(
+            self.hass, entity_name, external_calback
+        )
 
-    #     def find_integration_jump(hass: HomeAssistant, domain_name: str) -> bool:
-    #         loop = asyncio.new_event_loop()
-    #         result = loop.run_until_complete(
-    #             SLXKiaHyundai.async_find_integration(hass, domain_name)
-    #         )
-    #         return result
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        cb_soc: Callable[[Event], Any],
+        cb_soc_update: Callable[[Event], Any],
+        device_id: str | None = None,
+    ):
+        self.hass = hass
+        found_devices = SLXKiaHyundai.find_devices_check_entites(hass)
 
-    #     result = hass.async_add_executor_job(find_integration_jump, hass, domain_name)
-    #     return result
+        self.device_id = device_id
+        if self.device_id in found_devices:
+            self.device_name = found_devices[self.device_id]
+        else:
+            _LOGGER.error("Device %s not found", self.device_id)
+            # TODO - consider throwing an exception.
+            return
 
-    # @staticmethod
-    # def config_find_integration(hass: HomeAssistant) -> dict[str, str]:
-    #     """Find list of compatible
-    #     :returns: Dictionary of [deviceId, DeviceName]
-    #     """
-    #     devices_found: dict[str, str] = {}
+        self.slugified_name = SLXKiaHyundai._slugify_device_name(self.device_name)
 
-    #     is_integration_found: bool = SLXKiaHyundai._find_integration(
-    #         hass, KIAHYUNDAI_NAME
-    #     )
-    #     _LOGGER.warning(is_integration_found)
-    #     if is_integration_found is False:
-    #         return devices_found
+        self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
+        self.__subscribe_entity(
+            SLXKiaHyundai.__traslate_entity_name(
+                WatchedEntities["soclevel"], self.slugified_name
+            ),
+            cb_soc,
+        )
+        self.__subscribe_entity(
+            SLXKiaHyundai.__traslate_entity_name(
+                WatchedEntities["soclastupdate"], self.slugified_name
+            ),
+            cb_soc_update,
+        )
+        _LOGGER.info("SLXKiaHyundai correctly initialized")
 
-    @staticmethod
-    async def find_kiahyundai_devices_test(hass: HomeAssistant) -> dict[str, str]:
-        """Finds list of compatible OpenEVSE devices
-        :returns: Dictionary of [deviceID, DeviceName]
-        """
-        domain: str = "kia_uvo"
-        my_integration = await async_get_integration(hass, domain)
-
-        # my_integration = hass.async_add_executor_job(async_get_integration, domain)
-
-        _LOGGER.warning(my_integration)
-        _LOGGER.info(my_integration.domain)
-        _LOGGER.info(my_integration.version)
-        component = my_integration.get_component()
-        _LOGGER.info(component)
-        _LOGGER.info(component.DOMAIN)
-
-        devices_found: dict[str, str] = {}
-        deviceregistry = device_registry.async_get(hass)
-        for device_id in deviceregistry.devices:
-            device = deviceregistry.async_get(device_id)
-
-            _LOGGER.debug(device)
-            _LOGGER.debug("device.manufacturer = %s", device.manufacturer)
-            _LOGGER.debug("device.model = %s", device.model)
-            _LOGGER.debug("device.id = %s", device.id)
-            _LOGGER.debug("device.sw_version = %s", device.sw_version)
-            _LOGGER.debug("device.hw_version = %s", device.hw_version)
-
-            # if device.manufacturer == "OpenEVSE":
-            #     if device.model == "openevse_wifi_v1":
-            #         devices_found[device_id] = device.name
-
-        ### Look for entities with the right device and right integration.
-
-        entity_list: dict[str, EntityRegistry] = {}
-        entityregistry = entity_registry.async_get(hass)
-
-        devices_within_domain: list[str] = []
-
-        for entity_id in entityregistry.entities:
-            entity = entityregistry.async_get(entity_id)
-            # _LOGGER.debug(entity)
-            if entity.platform == "kia_uvo":
-                _LOGGER.info(entity)
-                device_id = entity.device_id
-                if device_id not in devices_within_domain:
-                    devices_within_domain.append(device_id)
-
-        _LOGGER.warning("Found devices:")
-        _LOGGER.warning(devices_within_domain)
-        for device in devices_within_domain:
-            devices_found[device] = device
-
-        return devices_found
-
-    # @staticmethod
-    # async def jump_function_asnyc(hass: HomeAssistant) -> dict[str, str]:
-    #     result = await SLXKiaHyundai.find_kiahyundai_devices_test(hass)
-    #     return result
-
-    # @staticmethod
-    # def jump_function(hass: HomeAssistant) -> dict[str, str]:
-    #     loop = asyncio.new_event_loop()
-    #     # loop = asyncio.get_event_loop()
-    #     result = loop.run_until_complete(
-    #         # SLXKiaHyundai.jump_function_asnyc(hass)
-    #         SLXKiaHyundai.find_kiahyundai_devices_test(hass)
-    #     )
-    #     return result
-
-    #      return await SLXKiaHyundai.find_kiahyundai_devices(hass)
-
-    # @staticmethod
-    # def sync_find_kiahyundai_devices(hass: HomeAssistant) -> dict[str, str]:
-    #     # loop = asyncio.get_event_loop()
-    #     # task = loop.create_task(SLXKiaHyundai.jump_function(hass))
-
-    #     feature_result = hass.async_add_executor_job(SLXKiaHyundai.jump_function, hass)
-    #     ##    result = asyncio.run(feature_result)
-    #     # result2 = asyncio.ensure_future(feature_result)
-    #     # await asyncio.gather(feature_result)
-    #     result = feature_result.result()
-    #     #  result = loop.run_until_complete(task)
-
-    #     _LOGGER.warning(result)
-    #     return result
+    def request_force_update(self) -> bool:
+        if self.hass.services.has_service(KIAHYUNDAI_NAME, FORCE_UPDATE_SERVICE):
+            self.hass.async_add_executor_job(
+                self.hass.services.call, KIAHYUNDAI_NAME, FORCE_UPDATE_SERVICE, {}
+            )
+            return True
+        return False

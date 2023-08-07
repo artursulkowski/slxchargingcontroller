@@ -183,22 +183,22 @@ class SLXOpenEVSE:
         _LOGGER.debug(
             "_activate_override - value: %s, device_id = %s",
             value_to_set,
-            SLXOpenEVSE.openevse_id,
+            self.openevse_id,
         )
         self.hass.async_add_executor_job(
             self.hass.services.call,
             "openevse",
             "set_override",
-            {"state": value_to_set, "device_id": [SLXOpenEVSE.openevse_id]},
+            {"state": value_to_set, "device_id": [self.openevse_id]},
         )
 
     def _clear_override(self) -> bool:
-        _LOGGER.debug("_clear_override, device_id = %s", SLXOpenEVSE.openevse_id)
+        _LOGGER.debug("_clear_override, device_id = %s", self.openevse_id)
         self.hass.async_add_executor_job(
             self.hass.services.call,
             "openevse",
             "clear_override",
-            {"device_id": [SLXOpenEVSE.openevse_id]},
+            {"device_id": [self.openevse_id]},
         )
 
     def set_charger_mode(self, mode: str) -> None:
