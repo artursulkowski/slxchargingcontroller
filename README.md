@@ -35,7 +35,9 @@ Charging starts immediatelly with full power.
 1. SLX Charging Controller monitors battery SOC and if it exceeds SOC Limit Max (e.g. 80%), charger is switched to STOPPED mode (no charging active).
 
 ## How you control it
-Integration have few entities you can use to control it:
+Integration have few entities you can use to control it
+![Status Entities](docs/images/control_entities.png)
+
 
 ### Entity: Charge Method
 This entity allows you to control in which mode SLX Charging Controller is working.
@@ -46,11 +48,19 @@ You can also switch to FAST mode which will make sure your car is charged immedi
 | ---| --- |
 | ECO <br> <sup> default</sup> | Keeps SOC between `SOC Limit Min` and `SOC Limit Max`<br> Uses both normal charging (full power available) and PVCharge (charging with excess energy)|
 | FAST | Runs normal charging until car reaches `SOC targer` |
-| Car SOC | descriwew |
+| MANUAL | Disables automation built-in SLX charging Controller. You can then manually set charger mode using `Charge mode` entity |
 
+### Enity: Charge mode
+In typical scenario value of this entity is changed by SLX Charging Controller. It represents state of EVSE.
+| Charge Mode values | Description  |
+| ---| --- |
+| STOPPED| Charging is stopped |
+| PVCHARGE| EVSE is charging car using only excess energy produced by Solar |
+| NORMAL CHARGE| EVSE is charging car using it's default power setting|
+| UNKNOWN| EVSE state was not read or set by SLX Charging Controller (usually after restart)|
 
 ### SOC entities
-You can easily modify values
+You can easily modify values of expected SOC in different scenarios
 
 | SOC related entities   | Description  |
 | ---| --- |
@@ -60,32 +70,55 @@ SOC target <br> <sup> default = 20% </sup> | In `Charge Method` = `FAST` chargin
 
 
 ### Output entities
-Integration also delivers few
+Integration also defines few entities informing you about current status
 
-If car's SOC is below
-
+![Status Entities](docs/images/status_entities.png)
 
 
 ## How to install
 
-TODO:
-- describe installation process.
-
+1. Login to Home Assistant console using SSH (You can use [Terminal&SSH add-on](https://github.com/home-assistant/addons/tree/master/ssh) to open console directly in browser)
+1. Go into customer_components directory
+    ```
+    [core-ssh /$] cd /config/custom_components/
+    ```
+1. Copy repository
+    ```
+    git clone https://github.com/artursulkowski/slxchargingcontroller.git
+    ```
+1. Add integration
 
 ## How to configure
+SLX Charging Controller automatically detects supported car and EVSE integrations.
+![Config Charger](docs/images/config_charger.png)
 
 
-## Automatic setup
+![Config Car](docs/images/config_car.png)
 
-## manual setup
+![Config Car Details](docs/images/config_car_details.png)
 
-TODO:
 
-- what kind of entities are accepted.
-- what is the Update time.
+### Manual setup
 
-## Known issues?
-- Early development
 
-# Want to contribute?
+| Input     | Unit of Measurement | Device Class | Description  |
+| ---| --- | --- | --- |
+| EVSE Session Energy | kWh, Wh | any | amount of energy added during charging session |
+| EVSE | any | plug | Status of charger's plug: On - pluged in, Off - unpluged |
+
+
+| Input     | Unit of Measurement | Device Class | Description  |
+| ---| --- | --- | --- |
+| Car SOC | % | any | Car's battery SOC |
+| Car SOC Update time | any | timestamp | Time in which Car SOC was read. In an ideal world we could use [state.last_updated](https://www.home-assistant.io/docs/configuration/state_object/), but in case of [Hyundai-Kia-Connect](https://github.com/Hyundai-Kia-Connect/kia_uvo) real update time is stored in separate entity |
+
+## Known issues
+Project is still at early stage of development. I am still discovering small issues at my own setup.
+I aim to register them in [issues](https://github.com/artursulkowski/slxchargingcontroller/issues)
+
+## Want to contribute?
+At the moment my goal is to increase number of supported integrations of both cars and EVSE.
+
+
+(TODO - add link)
 To be described
