@@ -74,7 +74,6 @@ Integration also defines few entities informing you about current status
 
 ![Status Entities](docs/images/status_entities.png)
 
-
 ## How to install
 
 1. Login to Home Assistant console using SSH (You can use [Terminal&SSH add-on](https://github.com/home-assistant/addons/tree/master/ssh) to open console directly in browser)
@@ -90,13 +89,10 @@ Integration also defines few entities informing you about current status
 
 ## How to configure
 SLX Charging Controller automatically detects supported car and EVSE integrations.
+
 ![Config Charger](docs/images/config_charger.png)
-
-
 ![Config Car](docs/images/config_car.png)
-
 ![Config Car Details](docs/images/config_car_details.png)
-
 
 ### Manual setup
 
