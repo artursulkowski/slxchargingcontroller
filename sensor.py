@@ -51,6 +51,7 @@ SENSOR_DESCRIPTIONS: Final[tuple[SensorEntityDescription, ...]] = (
         icon="mdi:lightning-bolt",
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
     ),
     SensorEntityDescription(
         key=BATTERY_SOC_ESTIMATION,
@@ -58,6 +59,7 @@ SENSOR_DESCRIPTIONS: Final[tuple[SensorEntityDescription, ...]] = (
         icon="mdi:battery-charging",
         device_class=SensorDeviceClass.BATTERY,
         native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=2,
     ),
     SensorEntityDescription(
         key=CHARGING_SESSION_DURATION,
@@ -109,6 +111,10 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
         self._attr_device_class = self._description.device_class
         self._attr_should_poll = False
         self._manager = coordinator.charging_manager
+        self._attr_suggested_display_precision = (
+            self._description.suggested_display_precision
+        )
+
         attribute_name: str = f"_attr_{self._key}"
         if hasattr(self._manager, attribute_name) is False:
             self._attr_available = False
@@ -140,9 +146,3 @@ class SlxChgCtrlSensor(SensorEntity, SlxChgCtrlEntity):
             _LOGGER.warning(
                 "Coordinator Update. Attribute: %s do not exist", attribute_name
             )
-
-    # TODO that prevision setting doesn't work. To be changed.
-    # that is optionally property of entity. To check if this is used and working.
-    @property
-    def native_precision(self) -> int:
-        return 2
