@@ -1,142 +1,128 @@
 # Salix Charging Controller
-[Home Assistant](https://www.home-assistant.io/) integration component, part of [Salix Project](https://github.com/artursulkowski/salix)
+SLX Charging Controller is [Home Assistant](https://www.home-assistant.io/) integration and part of [Salix Project](https://github.com/artursulkowski/salix)
 
-Charging Controller controlls EV charger to:
-* Achieve target SOC during charging session.
+SLX Charging Controller controls EVSE (aka. charger) based on car battery state of charge (SOC). It decides when to start and stop charging to:
+* Immediatelly charge your car to avoid battery staying in low SOC
+* Stop charging before battery is fully charged to avoid accelerated degradation.
+* Switch between charging from grid and charging using excess solar production.
 
-## Work status
-**Please treat this as work in progress.**
-Currently this isn't fully functional integration.
+For its operation, SLX Charging Controller requires other Home Assistant integrations:
+* Car integration - to check car's battery SOC
+* EVSE integration - to control charging process
+
+For supported integrations configuration process is simplified. However, [manual integration](#manual-setup) using entities is also possible.
+
+**Supported car's integrations:**
+| Car integration | Brand | Comment  |
+| --- | --- | ---|
+| [kia_uvo](https://github.com/Hyundai-Kia-Connect/kia_uvo) | Kia( UVO) <br> Hyundai (Bluelink) | Tested with: <br> Hyundai Kona|
+| Manual Configuration | N/A | You can select required entities (e.g. SOC) using [manual setup](#manual-setup) |
+| Planned:  [BMW Connected Drive](https://www.home-assistant.io/integrations/bmw_connected_drive/)|BMW| (planned) |
+
+**Supported EVSE integrations:**
+| EVSE integration | Brand | Comment  |
+| --- | --- | ---|
+| [OpenEVSE](https://github.com/firstof9/openevseo) | [OpenEVSE](https://www.openevse.com/) | Tested |
+| Manual Configuration | N/A | You can select required entities (e.g. SOC) using [manual setup](#manual-setup) |
+
+## How it works
+Exemplary scenario: You are connecting quite discharged car to the charger (e.g. SOC is 8%)
+1. SLXCharging controller - checks SOC
+1. Because SOC it is below `SOC Limit Min` (20%).
+Charging starts immediatelly with full power.
+1. Charging continues until SOC reaches 20%.
+1. Then charger is switched to PVCharge mode (charging from excess energy produced).
+1. SLX Charging Controller monitors battery SOC and if it exceeds `SOC Limit Max` (e.g. 80%), charger is switched to STOPPED mode (no charging active).
+
+## How you control it
+Integration have few entities used to controll it's operation:
+
+![Status Entities](docs/images/control_entities.png)
+
+### Entity: Charge Method
+This entity allows you to control in which mode SLX Charging Controller is working.
+You can select ECO mode for charging using excess solar energy produced at house (EVSE must support it).
+You can also switch to FAST mode which will make sure your car is charged immediatelly to required SOC.
+
+| Charge Method <br> value   | Description  |
+| ---| --- |
+| ECO <br> <sup> default</sup> | Keeps SOC between `SOC Limit Min` and `SOC Limit Max`<br> Uses both normal charging (full power available) and PVCharge (charging with excess solar energy)|
+| FAST | Runs normal charging until car reaches `SOC target` |
+| MANUAL | Disables automation built in SLX charging Controller. You can then manually set charger mode using `Charge mode` entity |
+
+### Enity: Charge mode
+In typical scenario value of this entity is changed by SLX Charging Controller. It represents state of EVSE.
+When `Charge Method` is set to `MANUAL` you can directly control `Charge mode`.
+| Charge Mode values | Description  |
+| ---| --- |
+| STOPPED| Charging is stopped |
+| PVCHARGE| EVSE is charging car using only excess energy produced by Solar |
+| NORMAL CHARGE| EVSE is charging car using it's default power setting|
+| UNKNOWN| EVSE state was not read or set by SLX Charging Controller (usually after restart)|
+
+### SOC entities
+You can easily modify values of expected SOC in different scenarios
+
+| SOC related entities   | Description  |
+| ---| --- |
+| SOC Limit Min <br> <sup> default = 20% </sup> | Minimum SOC that system tries to keep |
+SOC Limit Max <br> <sup> default = 80% </sup> | Maximum SOC kept when charging in ECO mode<br> Can be overwritten by SOC target |
+SOC target <br> <sup> default = 20% </sup> | In `Charge Method` = `FAST` charging is run until SOC = `SOC target` is reached <br> In `Charge Method` = `ECO` you can temporarily increase maximum SOC <br> If `SOC target` > `SOC Limit Max` charging using excess solar will be continued until `SOC target` is reached |
 
 
-# Technical design
-Integration is using [entities](https://developers.home-assistant.io/docs/core/entity/) already registered in HA to obtain information about EV battery SOC, current charging status.
-At intergration's configuration user can select input entities which are fitting required input data.
+### Output entities
+Integration also defines few entities informing you about current status of charging:
 
-Why use entities as intergration's input?
-* Very flexible solution - can connect to multiple other integrations already exisiting in the system.
-* Easy development - can use HA WebUI "States" to modify value of entity for testing and troubleshooting purpose.
+![Status Entities](docs/images/status_entities.png)
 
-Disadvantages:
-* Requires a lot of manual configuration.
-* Error prone.
+| Status entities   | Description  |
+| ---| --- |
+| Battery Energy Estimation |Estimated energy stored in battery |
+Battery SOC Estimation | Estimated battery state of charge. This value is used in making decision about charging. |
+Request SOC Update | Counter of how many times SLX Charging Controller request of SOC update. <br> <sub> *Note: Requires fix for replacing % with just decimal number*     |
 
-## Input entities:
 
+
+## How to install
+
+1. Login to Home Assistant console using SSH (You can use [Terminal&SSH add-on](https://github.com/home-assistant/addons/tree/master/ssh) to open console directly in browser)
+1. Go into customer_components directory
+    ```
+    [core-ssh /$] cd /config/custom_components/
+    ```
+1. Copy repository
+    ```
+    git clone https://github.com/artursulkowski/slxchargingcontroller.git
+    ```
+1. Add integration
+
+## How to configure
+SLX Charging Controller automatically detects supported car and EVSE integrations.
+
+![Config Charger](docs/images/config_charger.png)
+![Config Car](docs/images/config_car.png)
+![Config Car Details](docs/images/config_car_details.png)
+
+### Manual setup
+SLX Charging controller can work directly on entities provided by EVSE and car intergrations.
+That allows you to connect with integrations which aren't supported yet.
+
+#### EVSE Integration:
 | Input     | Unit of Measurement | Device Class | Description  |
 | ---| --- | --- | --- |
 | EVSE Session Energy | kWh, Wh | any | amount of energy added during charging session |
 | EVSE | any | plug | Status of charger's plug: On - pluged in, Off - unpluged |
+
+#### Car Integration:
+| Input     | Unit of Measurement | Device Class | Description  |
+| --- | --- | --- | --- |
 | Car SOC | % | any | Car's battery SOC |
-| Car SOC Update time | any | timestamp | Time in which Car SOC was read. In ideal world we could use [state.last_updated](https://www.home-assistant.io/docs/configuration/state_object/), but in case of [Hyundai-Kia-Connect](https://github.com/Hyundai-Kia-Connect/kia_uvo) real update time is stored in separate entity |
+| Car SOC Update time <br> <sup> (optional)| any | timestamp | Time in which Car SOC was read. In an ideal world we could use [state.last_updated](https://www.home-assistant.io/docs/configuration/state_object/), but in case of [Hyundai-Kia-Connect](https://github.com/Hyundai-Kia-Connect/kia_uvo) real update time is stored in separate entity |
 
-## Charging Controller Algorithm
+## Known issues
+Project is still at early stage of development. I am still discovering small issues at my own setup.
+I am registering them in [issues](https://github.com/artursulkowski/slxchargingcontroller/issues)
 
-```mermaid
-  stateDiagram
-  [*]--> CarConnected : Plug Connected
-  state CarConnected {
-    [*] --> RampingUp
-    RampingUp --> AutoPilot : SOC Update Failed
-    RampingUp --> SOCKnown : SOC Update Succeeded
-    AutoPilot --> SOCKnown : SOC Update Succeeded
-  }
-```
-
-```mermaid
-graph TD;
-  subgraph "RampingUp"
-  Start --> RequestBatSOCUpdate --> StartTimeoutForSOCUpdate
-%%  CarConnected --> SetStateRampingUp
-  TimeOutForSOCUpdate --> SetStateAutoPilot
-  RASessionEnergy(SessionEnergy) --> StoreSessionEnergy
-  end
-```
-```mermaid
-graph TD;
-  subgraph "SOCKnown"
-  SessionEnergy(SessionEnergy) --> StoreSessionEnergy --> CalculateStoredEnergy
-  SOCUpdated --> SetAnotherSOCUpdate --> CalculateStoredEnergy --> ChargingDecision
-  end
-```
-
-```mermaid
-graph TD;
-  subgraph "AutoPilot"
-  StartAutoPilot(start) --> SetAnotherSOCUpdateReminderShorter
-  StartAutoPilot(Start) --> ActivateCharging
-  EventSOCUpdate --> SetStateSOCKnown --> EndAutoPilot(end)
-  RASessionEnergy(SessionEnergy) --> StoreSessionEnergy
-  end
-```
-
-
-States:
-* RampingUp - car is connected but we didn't get SOC, waiting for it. Don't start charging yet
-* AutoPilot - we didn't get SOC. We are not estimating energy. However we activate charger - so user avoids situation that charging is blocked just because we cannot read correct
-* SOCKnown - at this state we are estimating SOC and we are controlling the charger according to charging plan.
-
-SOC Updates - state vs time of update
-In case of first prototype setup (Kia&Hyundai integration) SOC value (ev_battery_level) and time when this level was checked (car_last_updated_at) are two separate entities.
-I will combine these two values into pair of  (SOCLevel, SOCUpdateTime) in SLXChgCtrlUpdateCoordinator and deliver combined values into SLXChargingController.
-Therefore algorithms described here are ignoring the need to asynchronously combine these two values.
-
-# Home Assistant tips & tricks
-
-## (Development) How to add this integration
-This integration git is clonned into HA `core/homeassistant/components/slxchargingcontroller` folder.
-To make it visible at "add integration" page - I needed to add following entry into `core/homeassistant/generated/integrations.json`
-``` json
-"slxchargingcontroller": {
-    "name": "Slx Charging Controller",
-    "integration_type": "hub",
-    "config_flow": true,
-    "iot_class": "local_push"
-},
-```
-
-## Creating test entitites -  configuration.yaml
-Entries in configuration.yaml to create devices based on MQTT integration.
-Entities are created even if MQTT integration isn't receiving any messages oveor given MQTT topic. I use this approach for creating testing entities (topic _dummy_)
-
-``` yaml
-mqtt:
-  sensor:
-    - name: "OpenEVSE charger"
-      object_id: OpenEVSECharger
-      state_topic: openevse/temp
-      value_template: "{{ value | float / 10}}"
-      unit_of_measurement: "°C"
-
-    - name: "OpenEVSE charger2"
-      object_id: OpenEVSECharger2
-      state_topic: openevse/wh
-      value_template: "{{ value | float / 1000}}"
-      unit_of_measurement: "kWh"
-
-    - name: "OpenEVSE Session Energy"
-      object_id: openevsecharger_session_energy
-      state_topic: openevse/session_energy
-      value_template: "{{ value | float / 1000}}"
-      unit_of_measurement: "kWh"
-
-    - name: "Dummy SOC"
-      object_id: dummy_measured_soc
-      state_topic: dummy/soc
-      value_template: "value"
-      device_class: battery
-      unit_of_measurement: "%"
-
-    - name: "Dummy SOC timestamp"
-      object_id: dummy_soc_timestamp
-      state_topic: dummy/soctimestamp
-      device_class: timestamp
-
-  binary_sensor:
-    - name: "Dummy Charger plugged"
-      object_id: dummy_charger_plugged
-      state_topic: dummy/plug
-      value_template: "value"
-      device_class: plug
-```
-
+## Want to contribute?
+At the moment my goal is to increase number of supported integrations of both cars and EVSE.
+I will provide more details on cooperation soon. Follow the project to stay tuned.
