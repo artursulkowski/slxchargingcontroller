@@ -229,8 +229,18 @@ class SLXOpenEVSE:
             self._activate_override(True)
             return
 
-    def get_session_energy(self) -> float:
-        return self._get_value("sessionenergy")
+    def get_session_energy(self) -> float | None:
+        value_str = self._get_value("sessionenergy")
+        if value_str is None:
+            _LOGGER.warning("Get_session_energy - value_str is None")
+            return None
+        try:
+            value = float(value_str)
+            return value
+        except ValueError:
+            _LOGGER.warning("Get_session_energy - invalid state= %s", value_str)
+            return None
+        return None
 
     @staticmethod
     def _slugify_device_name(device_name: str) -> str:
