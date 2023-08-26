@@ -245,16 +245,19 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         device_id = conf_list[1]
 
-        found_devices = SLXKiaHyundai.find_devices_check_entites(self.hass)
-        if device_id not in found_devices:
+        tmp_car = SLXKiaHyundai(self.hass)
+        if (
+            tmp_car.connect(
+                self.callback_soc_level, self.callback_soc_update, device_id
+            )
+            is False
+        ):
             _LOGGER.error(
                 "DeviceId =%s not found in Kia/Hyundai devices list", device_id
             )
-            return True
-
-        self.car = SLXKiaHyundai(
-            self.hass, self.callback_soc_level, self.callback_soc_update, device_id
-        )
+            return False
+        else:
+            self.car = tmp_car
         return True
 
     async def _async_update_data(self):
@@ -343,10 +346,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         # TODO - now it is just hardcoded service. Later it should be set by configuration
 
         if self.car is not None:
-            if self.car.request_force_update() is False:
-                _LOGGER.warning("SOC Force Update service not found")
+            if self.car.request_soc_update() is False:
+                _LOGGER.warning("SOC Update service not found")
                 if request_counter != -1:
-                    _LOGGER.info("Schedule retry of SOC force update")
+                    _LOGGER.info("Schedule retry of SOC update")
                     self._timer_service_soc_update.schedule_timer()
         else:
             # keep old call
@@ -423,7 +426,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("SOC Update - state raw value: %s", state_value)
             value = dt_util.as_utc(dt_util.parse_datetime(state_value))
             # value = datetime.fromisoformat(state_value)
-        except ValueError:
+        except (ValueError, AttributeError):
             value = None
 
         if value is None:

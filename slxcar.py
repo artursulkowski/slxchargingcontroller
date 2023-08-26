@@ -171,12 +171,13 @@ class SLXCar:
         self.device_name = None
         self.slugified_name = None
 
-    async def connect(self) -> bool:
+    def connect(self) -> bool:
         # method to connect with external intergration
         pass
 
     async def disconnect(self) -> bool:
         # method to disconnect from external integration
+        # TODO - this one probably makes sense to just unsubscribe events?
         pass
 
     def request_soc_update(self) -> bool:

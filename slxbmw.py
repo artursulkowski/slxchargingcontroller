@@ -47,11 +47,49 @@ class SLXBmw(SLXCar):
         _LOGGER.info("Initialize SLXBMW")
         super().__init__(hass)
 
-    async def connect(self) -> bool:
-        _LOGGER.info("Connect")
+    def connect(
+        self,
+        cb_soc: Callable[[Event], Any],
+        device_id: str | None = None,
+    ) -> bool:
+        found_devices = SLXCar.find_devices_check_entites(
+            self.hass, SLXBmw.get_domain(), SLXBmw.get_required_entities()
+        )
+
+        # self.device_id = device_id
+        if device_id in found_devices:
+            self.device_id = device_id
+            self.device_name = found_devices[self.device_id]
+        else:
+            _LOGGER.error("Device %s not found", device_id)
+            return False
+        self.slugified_name = SLXCar._slugify_device_name(self.device_name)
+        _LOGGER.info("Found BMW device : device_name %s", self.device_name)
+
+        self._subscribe_entity(
+            SLXCar._traslate_entity_name(
+                SLXBmw.WATCHED_ENTITIES["soclevel"], self.slugified_name
+            ),
+            cb_soc,
+        )
 
     async def disconnect(self) -> bool:
         _LOGGER.info("Disconnect")
 
     def request_soc_update(self) -> bool:
-        _LOGGER.info("RequestSocUpdate")
+        UPDATE_SERVICE_DOMAIN = "homeassistant"
+        UPDATE_SERVICE_REQUEST = "update_entity"
+        entity_name = SLXCar._traslate_entity_name(
+            SLXBmw.WATCHED_ENTITIES["soclevel"], self.slugified_name
+        )
+        if self.hass.services.has_service(
+            UPDATE_SERVICE_DOMAIN, UPDATE_SERVICE_REQUEST
+        ):
+            self.hass.async_add_executor_job(
+                self.hass.services.call,
+                UPDATE_SERVICE_DOMAIN,
+                UPDATE_SERVICE_REQUEST,
+                {"entity_id": entity_name},
+            )
+            return True
+        return False

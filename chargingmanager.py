@@ -386,6 +386,8 @@ class SLXChargingManager:
         self.timer_next_soc_request.schedule_timer()
         if self._car_connected_status is CarConnectedStates.ramping_up:
             self._car_connected_status = CarConnectedStates.autopilot
+            # TODO - ADD recalculating EVSE mode
+            _LOGGER.error("We need to handle recalculation of EVSE state")
             return
 
     @callback
