@@ -46,10 +46,12 @@ class SLXBmw(SLXCar):
     def __init__(self, hass: HomeAssistant):
         _LOGGER.info("Initialize SLXBMW")
         super().__init__(hass)
+        self.dynamic_config[SLXCar.CONF_SOC_UPDATE_REQUIRED] = False
 
     def connect(
         self,
         cb_soc: Callable[[Event], Any],
+        cb_soc_update: Callable[[Event], Any] | None = None,
         device_id: str | None = None,
     ) -> bool:
         found_devices = SLXCar.find_devices_check_entites(
@@ -73,8 +75,11 @@ class SLXBmw(SLXCar):
             cb_soc,
         )
 
+        super().connect()
+
     async def disconnect(self) -> bool:
         _LOGGER.info("Disconnect")
+        super().disconnect()
 
     def request_soc_update(self) -> bool:
         UPDATE_SERVICE_DOMAIN = "homeassistant"

@@ -49,6 +49,7 @@ class SLXKiaHyundai(SLXCar):
     def __init__(self, hass: HomeAssistant):
         _LOGGER.info("Initialize SLXKiaHyundai")
         super().__init__(hass)
+        # overwrite some config information
 
     def connect(
         self,
@@ -82,13 +83,15 @@ class SLXKiaHyundai(SLXCar):
             ),
             cb_soc_update,
         )
+        super().connect()
 
     async def disconnect(self) -> bool:
-        # TODO - add checking if integration was connected.
-        # unsubscribing can be done within  SLXCar.disconnect as it is universal for all car's integrations.
         _LOGGER.info("Disconnect")
+        if self.connected is False:
+            # it's already disconnected, ignore the request.
+            return True
+        super().disconnect()
 
-    #    def request_force_update(self) -> bool:
     def request_soc_update(self) -> bool:
         # TODO - add checking if integration was connected
 

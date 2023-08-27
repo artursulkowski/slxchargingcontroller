@@ -7,6 +7,7 @@ from datetime import timedelta, datetime
 import logging
 import asyncio
 
+from typing import Any
 from homeassistant.config_entries import ConfigEntry
 
 from homeassistant.const import (
@@ -46,7 +47,9 @@ from .const import (
 from .chargingmanager import SLXChargingManager
 from .timer import SlxTimer
 from .slxopenevse import SLXOpenEVSE
+from .slxcar import SLXCar
 from .slxkiahyundai import SLXKiaHyundai
+from .slxbmw import SLXBmw
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
@@ -56,9 +59,6 @@ import homeassistant.util.dt as dt_util
 
 
 _LOGGER = logging.getLogger(__name__)
-
-DELAYED_SOC_READING: int = 5  # seconds
-RETRY_SOC_UPDATE: int = 60  # seconds
 
 
 class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
@@ -73,8 +73,70 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         )
 
         self.hass = hass
-        #
-        self.charging_manager = SLXChargingManager(hass)
+
+        # First setup a car - as we will need a configuration from the car!
+
+        ### Connect to Car integration
+        self._received_soc_level: float = None
+        self._received_soc_update: datetime = None
+        self._delay_soc_update: bool = False
+
+        car_created: bool = False
+        car_config = config_entry.options.get(CONF_CAR_TYPE, "")
+        self.car = None
+        car_created = self.create_auto_car(car_config)
+
+        self.car_config = None
+
+        if car_created is True:
+            self.car_config: dict[str, Any] = self.car.dynamic_config
+            self._delay_soc_update = self.car_config[SLXCar.CONF_SOC_UPDATE_REQUIRED]
+        else:
+            # Manual setup using entities
+            self.unsub_soc_level = None
+            current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
+            if current_soc_level != "":
+                _LOGGER.info("Subscribe car SOC level: %s ", current_soc_level)
+                self.unsub_soc_level = async_track_state_change_event(
+                    hass,
+                    current_soc_level,
+                    self.callback_soc_level,
+                )
+
+            self.unsub_soc_update = None
+            current_soc_update = config_entry.options.get(CONF_CAR_SOC_UPDATE_TIME, "")
+            if current_soc_update != "":
+                _LOGGER.info("Subscribe car SOC update time: %s ", current_soc_update)
+                self.unsub_soc_update = async_track_state_change_event(
+                    hass,
+                    current_soc_update,
+                    self.callback_soc_update,
+                )
+
+            if self.unsub_soc_update is not None and self.unsub_soc_level is not None:
+                self._delay_soc_update = True
+
+        self._timer_read_soc = None
+        timer_read_soc = self.car.dynamic_config[SLXCar.CONF_SOC_READING_DELAY]
+        if timer_read_soc > 0 and self._delay_soc_update is True:
+            self._timer_read_soc = SlxTimer(
+                hass,
+                timedelta(seconds=timer_read_soc),
+                self.callback_soc_delayed,
+            )
+
+        self._timer_soc_update_retry = None
+        soc_update_retry_time = self.car.dynamic_config[SLXCar.CONF_SOC_UPDATE_RETRY]
+        if soc_update_retry_time > 0:
+            self._timer_soc_update_retry = SlxTimer(
+                hass,
+                timedelta(seconds=soc_update_retry_time),
+                self.callback_soc_requested_retry,
+            )
+
+        # Setup charging manager
+
+        self.charging_manager = SLXChargingManager(hass, self.car_config)
         self.charging_manager.set_energy_estimated_callback(
             self.callback_energy_estimated
         )
@@ -117,56 +179,6 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                     self.callback_charger_plug_connected,
                 )
 
-        ### Connect to Car integration
-        self._received_soc_level: float = None
-        self._received_soc_update: datetime = None
-        self._delay_soc_update: bool = False
-
-        car_created: bool = False
-        car_config = config_entry.options.get(CONF_CAR_TYPE, "")
-        self.car = None
-        car_created = self.create_auto_car(car_config)
-
-        if car_created is True:
-            # so far I am supporting only Hyundai so this can be enabled automatically.
-            # Later this should be one of properties taken from car integration.
-            self._delay_soc_update = True
-        else:
-            # Manuale setup usingentities
-            self.unsub_soc_level = None
-            current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
-            if current_soc_level != "":
-                _LOGGER.info("Subscribe car SOC level: %s ", current_soc_level)
-                self.unsub_soc_level = async_track_state_change_event(
-                    hass,
-                    current_soc_level,
-                    self.callback_soc_level,
-                )
-
-            self.unsub_soc_update = None
-            current_soc_update = config_entry.options.get(CONF_CAR_SOC_UPDATE_TIME, "")
-            if current_soc_update != "":
-                _LOGGER.info("Subscribe car SOC update time: %s ", current_soc_update)
-                self.unsub_soc_update = async_track_state_change_event(
-                    hass,
-                    current_soc_update,
-                    self.callback_soc_update,
-                )
-
-            if self.unsub_soc_update is not None and self.unsub_soc_level is not None:
-                self._delay_soc_update = True
-
-        self._timer_read_soc = SlxTimer(
-            hass,
-            timedelta(seconds=DELAYED_SOC_READING),
-            self.callback_soc_delayed,
-        )
-
-        self._timer_service_soc_update = SlxTimer(
-            hass,
-            timedelta(seconds=RETRY_SOC_UPDATE),
-            self.callback_soc_requested_retry,
-        )
         ################### Continue configuration
 
         super().__init__(
@@ -177,9 +189,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             # update_interval=timedelta(seconds=self.scan_interval),
         )
 
-        ## TODO - workaround - I need to initialize data after parent class. This is not a typical flow.
-        ## If not done at that order parent's init will overwrite self.data
-        self.data: dict(str, any) = {}
+        # I need to initialize data after parent class.
+        # If not done at that order parent's init will overwrite self.data
+        self.data: dict[str, Any] = {}
         self.data[ENT_CHARGE_MODE] = CHR_MODE_UNKNOWN
         self.data[ENT_CHARGE_METHOD] = CHR_METHOD_ECO
         self.data[ENT_SOC_LIMIT_MIN] = float(20)
@@ -237,15 +249,23 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Invalid syntax of car Config: %s", configuration)
             return True
 
-        if conf_list[0] != "kia_hyundai":
+        integration_name = conf_list[0]
+        device_id = conf_list[1]
+
+        tmp_car = None
+
+        match integration_name:
+            case "kia_hyundai":
+                tmp_car = SLXKiaHyundai(self.hass)
+            case "bmw":
+                tmp_car = SLXBmw(self.hass)
+
+        if tmp_car is None:
             _LOGGER.error(
-                "Only Kia/Hyundai devices are supported. Config: %s", configuration
+                "Unsupported type of Car Integration. Config: %s", configuration
             )
             return True
 
-        device_id = conf_list[1]
-
-        tmp_car = SLXKiaHyundai(self.hass)
         if (
             tmp_car.connect(
                 self.callback_soc_level, self.callback_soc_update, device_id
@@ -253,9 +273,9 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             is False
         ):
             _LOGGER.error(
-                "DeviceId =%s not found in Kia/Hyundai devices list", device_id
+                "Error at connecting car's integration. Config: %s", configuration
             )
-            return False
+            return True
         else:
             self.car = tmp_car
         return True
@@ -314,7 +334,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             value = None
         try:
             unit = event_new_state.attributes["unit_of_measurement"]
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             unit = None
         if value is not None and unit is not None:
             if unit == "Wh":
@@ -330,7 +350,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 value = d[state_text]
             else:
                 value = None
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             value = None
         return value
 
@@ -350,18 +370,11 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.warning("SOC Update service not found")
                 if request_counter != -1:
                     _LOGGER.info("Schedule retry of SOC update")
-                    self._timer_service_soc_update.schedule_timer()
+                    self._timer_soc_update_retry.schedule_timer()
         else:
-            # keep old call
-            if self.hass.services.has_service("kia_uvo", "force_update"):
-                self.hass.async_add_executor_job(
-                    self.hass.services.call, "kia_uvo", "force_update", {}
-                )
-            else:
-                _LOGGER.warning("SOC Force Update service not found")
-                if request_counter != -1:
-                    _LOGGER.info("Schedule retry of SOC force update")
-                    self._timer_service_soc_update.schedule_timer()
+            _LOGGER.warning(
+                "Get request for SocUpdate but car's integration isn't setup"
+            )
 
     # TODO workaround because SLXTimer is passing DateTime as parametrs - this should be made more elegant
     @callback

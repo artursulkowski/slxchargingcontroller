@@ -164,21 +164,51 @@ class SLXCar:
             self.hass, entity_name, external_calback
         )
 
+    # Configurations. Assume that all times are set in seconds.
+
+    # Used by coordinator
+    CONF_SOC_UPDATE_REQUIRED = "SOC_UPDATE_REQUIRED"  # True/False - does we need to subscribe for SOC Update time
+    CONF_SOC_READING_DELAY = "SOC_READING_DELAY"  # time[s] how long after received SOC Update Time - we read SOC level. Only used if CONF_SOC_UPDATE_REQUIRED is True.
+    CONF_SOC_UPDATE_RETRY = "SOC_UPDATE_RETRY"  # time[s] after which we retry "request_soc_update", if 0 or missing,  no retry is done
+    # Used by charging manager
+    CONF_SOC_REQUEST_TIMEOUT = "SOC_REQUEST_TIMEOUT"  # time[s] after which we treat that SOC isn't received and we switch to autopilot mode
+    CONF_SOC_NEXT_UPDATE = (
+        "SOC_NEXT_UPDATE"  # time[s] how often we request for checking SOC level
+    )
+    CONF_SOC_BEFORE_ENERGY = "SOC_BEFORE_ENERGY"  # time[s] how long before plug connection and/or receiving session energy from EVSE, SOC level is treated as valid.
+    CONF_SOC_AFTER_ENERGY = "SOC_AFTER_ENERGY"  # time[s] how long after last energy reading - received SOC can be treated as valid.
+
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
         self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
         self.device_id = None
         self.device_name = None
         self.slugified_name = None
+        self.connected: bool = False
+        self.dynamic_config: dict[str, Any] = {
+            SLXCar.CONF_SOC_UPDATE_REQUIRED: True,
+            SLXCar.CONF_SOC_READING_DELAY: 20,
+            SLXCar.CONF_SOC_UPDATE_RETRY: 60,
+            SLXCar.CONF_SOC_REQUEST_TIMEOUT: 3 * 60,
+            SLXCar.CONF_SOC_NEXT_UPDATE: 150 * 60,  # 2.5 h
+            SLXCar.CONF_SOC_BEFORE_ENERGY: 15 * 60,  # 15 minutes
+            SLXCar.CONF_SOC_AFTER_ENERGY: 48
+            * 60
+            * 60,  # up to 48 hours. In fact we need to handle a case in which session energy won't change because charging will be paused for few days!
+        }
 
     def connect(self) -> bool:
         # method to connect with external intergration
-        pass
+        self.connected = True
 
     async def disconnect(self) -> bool:
         # method to disconnect from external integration
-        # TODO - this one probably makes sense to just unsubscribe events?
-        pass
+        if self.connected is False:
+            return True
+
+        for entity_name, cancel in self.unsub_dict.items():
+            _LOGGER.debug("Unsubscribing entity %s", entity_name)
+            cancel()
 
     def request_soc_update(self) -> bool:
         pass
