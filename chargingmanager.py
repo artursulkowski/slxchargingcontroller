@@ -5,6 +5,9 @@ from homeassistant.helpers.event import async_call_later
 from datetime import timedelta, datetime
 from collections.abc import Callable
 from enum import Enum
+from .slxcar import SLXCar
+from typing import Any
+
 
 # from bisect import bisect_left
 
@@ -19,19 +22,13 @@ from .const import (
     CHR_MODE_STOPPED,
     CHR_MODE_PVCHARGE,
     CHR_MODE_NORMAL,
-    CHR_MODE_UNKNOWN,
     CHR_METHOD_MANUAL,
     CHR_METHOD_ECO,
     CHR_METHOD_FAST,
 )
 
-SOC_REQUEST_TIMEOUT: int = 120  # seconds
-NEXT_SOC_REQUEST_UPDATE: int = 150  # minutes
+
 CHARGING_EFFICIENCY: float = 0.80  # assumed efficiency of charging.
-SOC_BEFORE_ENERGY: int = 600  # seconds
-SOC_AFTER_ENERGY: int = (
-    3600 * 4
-)  # seconds - we accept a difference of up to 4 hours. Bigger indicates that something terribly wrong was happening and we should not treat values as relevant.
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,10 +51,12 @@ class SlxEnergyTracker:
     Prepare more detailed description using https://peps.python.org/pep-0257/
     """
 
-    def __init__(self):
+    def __init__(self, soc_before_energy: int, soc_after_energy: int):
         self._session_energy_history: list[tuple[datetime, float]] = []
         self._soc_information: tuple[datetime, float] = (None, None)
         self._session_energy_at_soc: float = None
+        self._soc_before_energy = soc_before_energy
+        self._soc_after_energy = soc_after_energy
 
     def clear_history(self):
         self._session_energy_history.clear()
@@ -110,7 +109,7 @@ class SlxEnergyTracker:
             soc_before: timedelta = (
                 self._session_energy_history[0][0] - self._soc_information[0]
             )
-            if soc_before < timedelta(seconds=SOC_BEFORE_ENERGY):
+            if soc_before < timedelta(seconds=self._soc_before_energy):
                 self._session_energy_at_soc = self._session_energy_history[0][1]
                 return True
         elif (
@@ -121,7 +120,7 @@ class SlxEnergyTracker:
                 self._soc_information[0]
                 - self._session_energy_history[length_of_history - 1][0]
             )
-            if soc_after < timedelta(seconds=SOC_AFTER_ENERGY):
+            if soc_after < timedelta(seconds=self._soc_after_energy):
                 self._session_energy_at_soc = self._session_energy_history[
                     length_of_history - 1
                 ][1]
@@ -146,26 +145,16 @@ class SlxEnergyTracker:
     def get_stored_soc(self) -> float:
         return self._soc_information[1]
 
-    # Version with bisect_left will be usable after switching to newer HA version (python 3.10)
-    # For now I will use very primitive search)
-    # def calculate_estimated_session(self) -> bool:
-    #     # few conditions need to be met..
-    #     if len(self._session_energy_history) < 2:
-    #         return False
-    #     index = bisect_left(
-    #         self._session_energy_history,
-    #         self._soc_information,
-    #         key=extract_datetime,
-    #         # key=lambda item: item[0],
-    #     )
-
 
 class SLXChargingManager:
     """Class for Charging Manager"""
 
-    def __init__(self, hass: HomeAssistant):
+    def __init__(self, hass: HomeAssistant, car_config: dict[str, Any]):
         self.hass = hass
-        self._energy_tracker = SlxEnergyTracker()
+        self._energy_tracker = SlxEnergyTracker(
+            soc_before_energy=car_config[SLXCar.CONF_SOC_BEFORE_ENERGY],
+            soc_after_energy=car_config[SLXCar.CONF_SOC_AFTER_ENERGY],
+        )
 
         # status when car connected
         self._car_connected_status: CarConnectedStates = None
@@ -197,26 +186,28 @@ class SLXChargingManager:
         self._callback_set_charger_mode: Callable[[str], None] = None
 
         # timers for controller
+        soc_request_timeout = car_config[SLXCar.CONF_SOC_REQUEST_TIMEOUT]
         self.timer_soc_request_timeout = SlxTimer(
             self.hass,
-            timedelta(seconds=SOC_REQUEST_TIMEOUT),
+            timedelta(seconds=soc_request_timeout),
             self.callback_soc_timeout,
         )
 
+        soc_next_update = car_config[SLXCar.CONF_SOC_NEXT_UPDATE]
         self.timer_next_soc_request = SlxTimer(
             self.hass,
-            timedelta(minutes=NEXT_SOC_REQUEST_UPDATE),
+            timedelta(seconds=soc_next_update),
             self.callback_bat_update,
         )
 
-    def set_energy_estimated_callback(self, callback: Callable[[float], None]):
-        self._callback_energy_estimated = callback
+    def set_energy_estimated_callback(self, ext_callback: Callable[[float], None]):
+        self._callback_energy_estimated = ext_callback
 
-    def set_soc_requested_callback(self, callback: Callable[[int], None]):
-        self._callback_soc_requested = callback
+    def set_soc_requested_callback(self, ext_callback: Callable[[int], None]):
+        self._callback_soc_requested = ext_callback
 
-    def set_charger_mode_callback(self, callback: Callable[[str], None]):
-        self._callback_set_charger_mode = callback
+    def set_charger_mode_callback(self, ext_callback: Callable[[str], None]):
+        self._callback_set_charger_mode = ext_callback
 
     @property
     def plug_status(self):
@@ -382,16 +373,18 @@ class SLXChargingManager:
     @callback
     def callback_soc_timeout(self, _) -> None:
         """Callback for SLXTimer - called when SOC Update timeouts"""
-        _LOGGER.info("callback_soc_timeout")
+        _LOGGER.info("SOC Update timeouted")
         self.timer_next_soc_request.schedule_timer()
         if self._car_connected_status is CarConnectedStates.ramping_up:
             self._car_connected_status = CarConnectedStates.autopilot
+            # TODO - ADD recalculating EVSE mode
+            _LOGGER.error("We need to handle recalculation of EVSE state")
             return
 
     @callback
     def callback_bat_update(self, _) -> None:
         """Callback for SLXTimer - called when we need to request another battery update"""
-        _LOGGER.info("callback_bat_update")
+        _LOGGER.info("Timer - we need to request SOC Update")
         if self._attr_charging_active is True:
             self.request_bat_soc_update()
 

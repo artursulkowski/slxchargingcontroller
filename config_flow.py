@@ -44,6 +44,8 @@ from homeassistant.const import (
 
 from .slxopenevse import SLXOpenEVSE
 from .slxkiahyundai import SLXKiaHyundai
+from .slxcar import SLXCar
+from .slxbmw import SLXBmw
 
 from .const import (
     DOMAIN,
@@ -280,13 +282,28 @@ class SLXConfigFlow:
         entry_id: str = None,
     ) -> vol.Schema:
         list_options: dict[str, str] = {}
-        integration_found = await SLXKiaHyundai.async_find_integration(hass)
-        if integration_found is True:
-            found_kia_hyundai = SLXKiaHyundai.find_devices_check_entites(hass)
-            for device_id, device_name in found_kia_hyundai.items():
+
+        integration_found_kiahyundai = await SLXCar.async_find_integration_by_domain(
+            hass, SLXKiaHyundai.get_domain()
+        )
+        if integration_found_kiahyundai is True:
+            found_kiahyundai_devices = SLXCar.find_devices_check_entites(
+                hass, SLXKiaHyundai.get_domain(), SLXKiaHyundai.get_required_entities()
+            )
+            for device_id, device_name in found_kiahyundai_devices.items():
                 list_options[
                     f"kia_hyundai.{device_id}"
                 ] = f"[Kia/Hyundai] {device_name}"
+
+        integration_found_bmw = await SLXCar.async_find_integration_by_domain(
+            hass, SLXBmw.get_domain()
+        )
+        if integration_found_bmw is True:
+            found_bmw_devices = SLXCar.find_devices_check_entites(
+                hass, SLXBmw.get_domain(), SLXBmw.get_required_entities()
+            )
+            for device_id, device_name in found_bmw_devices.items():
+                list_options[f"bmw.{device_id}"] = f"[BMW] {device_name}"
 
         list_options["manual"] = "Manual Configuraton"
 
