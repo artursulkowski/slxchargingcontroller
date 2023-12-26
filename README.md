@@ -22,7 +22,7 @@ For supported integrations configuration process is simplified. However, [manual
 **Supported EVSE integrations:**
 | EVSE integration | Brand | Comment  |
 | --- | --- | ---|
-| [OpenEVSE](https://github.com/firstof9/openevseo) | [OpenEVSE](https://www.openevse.com/) | Tested |
+| [OpenEVSE](https://github.com/firstof9/openevse) | [OpenEVSE](https://www.openevse.com/) | Tested |
 | Manual Configuration | N/A | You can select required entities (e.g. SOC) using [manual setup](#manual-setup) |
 
 ## How it works

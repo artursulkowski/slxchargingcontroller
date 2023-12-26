@@ -65,7 +65,10 @@ class SLXCar:
         _LOGGER.debug(
             "Integration - domain %s, version %s", domain_name, integration_version
         )
-        component = integration.get_component()
+        try:
+            component = integration.get_component()
+        except Exception:  # pylint: disable=broad-except
+            return False
         _LOGGER.debug(component)
         return True
 
