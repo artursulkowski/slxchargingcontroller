@@ -95,7 +95,9 @@ class SlxEnergyTracker:
 
                 total_diff: timedelta = higher_value[0] - lower_value[0]
                 partial_diff: timedelta = self._soc_information[0] - lower_value[0]
-                factor: float = partial_diff.seconds / total_diff.seconds
+                factor: float = 0
+                if total_diff.seconds > 0:
+                    factor = partial_diff.seconds / total_diff.seconds
                 self._session_energy_at_soc = lower_value[1] + factor * (
                     higher_value[1] - lower_value[1]
                 )
