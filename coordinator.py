@@ -50,6 +50,7 @@ from .slxopenevse import SLXOpenEVSE
 from .slxcar import SLXCar
 from .slxkiahyundai import SLXKiaHyundai
 from .slxbmw import SLXBmw
+from .slxcarmanual import SLXCarManual
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
@@ -88,33 +89,30 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         self.car_config = None
 
+        if car_created is False:
+            # we try manual update
+            # there is a nicer way to do it (some factory with additional config options?)
+            current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
+            current_soc_update = config_entry.options.get(
+                CONF_CAR_SOC_UPDATE_TIME, None
+            )
+            if current_soc_level != "":
+                self.car = SLXCarManual(self.hass)
+                car_created = self.car.connect(
+                    self.callback_soc_level,
+                    current_soc_level,
+                    self.callback_soc_update,
+                    current_soc_update,
+                )
+                if current_soc_update is not None:
+                    # that's unusual as we are storing config back to car object
+                    self.car.dynamic_config[SLXCar.CONF_SOC_UPDATE_REQUIRED] = True
+                else:
+                    self.car.dynamic_config[SLXCar.CONF_SOC_UPDATE_REQUIRED] = False
+
         if car_created is True:
             self.car_config: dict[str, Any] = self.car.dynamic_config
             self._delay_soc_update = self.car_config[SLXCar.CONF_SOC_UPDATE_REQUIRED]
-        else:
-            # Manual setup using entities
-            self.unsub_soc_level = None
-            current_soc_level = config_entry.options.get(CONF_CAR_SOC_LEVEL, "")
-            if current_soc_level != "":
-                _LOGGER.info("Subscribe car SOC level: %s ", current_soc_level)
-                self.unsub_soc_level = async_track_state_change_event(
-                    hass,
-                    current_soc_level,
-                    self.callback_soc_level,
-                )
-
-            self.unsub_soc_update = None
-            current_soc_update = config_entry.options.get(CONF_CAR_SOC_UPDATE_TIME, "")
-            if current_soc_update != "":
-                _LOGGER.info("Subscribe car SOC update time: %s ", current_soc_update)
-                self.unsub_soc_update = async_track_state_change_event(
-                    hass,
-                    current_soc_update,
-                    self.callback_soc_update,
-                )
-
-            if self.unsub_soc_update is not None and self.unsub_soc_level is not None:
-                self._delay_soc_update = True
 
         self._timer_read_soc = None
         timer_read_soc = self.car.dynamic_config[SLXCar.CONF_SOC_READING_DELAY]
