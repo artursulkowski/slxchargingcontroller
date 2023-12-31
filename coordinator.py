@@ -46,7 +46,8 @@ from .const import (
 
 from .chargingmanager import SLXChargingManager
 from .timer import SlxTimer
-from .slxopenevse import SLXOpenEVSE
+from .slxopenevse import SLXOpenEvse
+from .slxevsemanual import SLXManualEvse
 from .slxcar import SLXCar
 from .slxkiahyundai import SLXKiaHyundai
 from .slxbmw import SLXBmw
@@ -89,6 +90,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         self.car_config = None
 
+        # TODO - move to self.create_manual_car
         if car_created is False:
             # we try manual update
             # there is a nicer way to do it (some factory with additional config options?)
@@ -145,38 +147,14 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.battery_capacity = bat_capacity
 
         ### Connect to EVSE
-        self.openevse = None
+        self.evse = None
         charger_config = config_entry.options.get(CONF_CHARGER_TYPE, "")
         evse_configured: bool = self.create_auto_evse(charger_config)
 
         # TODO add checking if OpenEVSE was in fact setup through configuration
 
         if evse_configured is False:
-            _LOGGER.info("Manual EVSE integration, connecting to individual entities")
-            self.unsub_openevse_session_energy = None
-            current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
-            if current_evse_energy != "":
-                _LOGGER.info("Subscribe EVSE energy: %s ", current_evse_energy)
-                self.unsub_openevse_session_energy = async_track_state_change_event(
-                    hass,
-                    current_evse_energy,
-                    self.callback_charger_session_energy,
-                )
-
-            self.unsub_openevse_plug_connected = None
-            current_evse_plug_connected = config_entry.options.get(
-                CONF_EVSE_PLUG_CONNECTED, ""
-            )
-            if current_evse_plug_connected != "":
-                _LOGGER.info(
-                    "Subscribe EVSE plug connected: %s ", current_evse_plug_connected
-                )
-                self.unsub_openevse_plug_connected = async_track_state_change_event(
-                    hass,
-                    current_evse_plug_connected,
-                    self.callback_charger_plug_connected,
-                )
-
+            evse_configured = self.create_manual_evse(config_entry)
         ################### Continue configuration
 
         super().__init__(
@@ -220,14 +198,15 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         device_id = conf_list[1]
 
         # double check if OpenEVSE with that deviceID exists
-        if SLXOpenEVSE.check_all_entities(self.hass, device_id) == True:
-            self.openevse = SLXOpenEVSE(
+        if SLXOpenEvse.check_all_entities(self.hass, device_id) is True:
+            self.evse = SLXOpenEvse(
                 self.hass,
+            )
+            return self.evse.connect(
                 cb_sessionenergy=self.callback_charger_session_energy,
                 cb_plug=self.callback_charger_plug_connected,
                 device_id=device_id,
             )
-            return True
         else:
             _LOGGER.error(
                 "Error initializing OpenEVSE, proper device isn't found. Config: %s",
@@ -237,6 +216,29 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             return True
 
         return True
+
+    def create_manual_evse(self, config_entry: ConfigEntry) -> bool:
+        current_evse_energy = config_entry.options.get(CONF_EVSE_SESSION_ENERGY, "")
+        current_evse_plug_connected = config_entry.options.get(
+            CONF_EVSE_PLUG_CONNECTED, ""
+        )
+
+        if current_evse_energy == "" or current_evse_plug_connected == "":
+            return False
+
+        _LOGGER.info(
+            "Creating manual EVSE with entities: session= %s, plug = %s",
+            current_evse_energy,
+            current_evse_plug_connected,
+        )
+        self.evse = SLXManualEvse(self.hass)
+        successful_connect = self.evse.connect(
+            self.callback_charger_session_energy,
+            current_evse_energy,
+            self.callback_charger_plug_connected,
+            current_evse_plug_connected,
+        )
+        return successful_connect
 
     def create_auto_car(self, configuration: str) -> bool:
         if configuration == "manual":
@@ -310,8 +312,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
     def async_charger_select(self, value: str):
         self.data[ENT_CHARGE_MODE] = value
-        if self.openevse is not None:
-            self.openevse.set_charger_mode(value)
+        if self.evse is not None:
+            self.evse.set_charger_mode(value)
             _LOGGER.info("Setting charger mode to %s", value)
         else:
             _LOGGER.error(
@@ -388,7 +390,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
                 charger_mode,
             )
             return
-        if self.openevse is None:
+        if self.evse is None:
             _LOGGER.error("Cannor handled charger mode change. OpenEVSE isn't setup")
             return
 
@@ -408,8 +410,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.info("Callback - charger plug connected %s", value)
         self.charging_manager.plug_status = value
         ## Getting session energy at the moment when plug is connected.
-        if self.openevse is not None:
-            energy = self.openevse.get_session_energy()
+        if self.evse is not None:
+            energy = self.evse.get_session_energy()
             if energy is not None:
                 self.charging_manager.add_charger_energy(energy)
 

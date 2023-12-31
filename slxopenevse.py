@@ -18,6 +18,8 @@ from homeassistant.core import (
     callback,
 )
 
+from .slxevse import SLXEvse
+
 from .const import (
     CHARGER_MODES,
     CHR_MODE_UNKNOWN,
@@ -50,47 +52,50 @@ SetEntities = {
 _LOGGER = logging.getLogger(__name__)
 
 
-class SLXOpenEVSE:
+class SLXOpenEvse(SLXEvse):
     """Class for OpenEVSE connection"""
 
     def __init__(
         self,
         hass: HomeAssistant,
+    ):
+        _LOGGER.debug("SLXOpenEVSE")
+        super().__init__(hass)
+
+    def connect(
+        self,
         cb_sessionenergy: Callable[[Event], Any],
         cb_plug: Callable[[Event], Any],
         device_id: str | None = None,
-    ):
-        _LOGGER.debug("SLXOpenEVSE")
-
-        self.hass = hass
-
+    ) -> bool:
         self.openevse_id = device_id
-        self.openevse_name = SLXOpenEVSE.get_openevse_devicename(hass, device_id)
+        self.openevse_name = SLXOpenEvse.get_openevse_devicename(self.hass, device_id)
         if self.openevse_name is None:
             _LOGGER.error("OpenEVSE device with device_id=%s does not exist", device_id)
 
-        self.openevse_slugified_name = SLXOpenEVSE._slugify_device_name(
+        self.openevse_slugified_name = SLXOpenEvse._slugify_device_name(
             self.openevse_name
         )
 
-        self.charge_mode: str = CHR_MODE_UNKNOWN
-        self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
         if (
-            SLXOpenEVSE.check_all_entities(hass, self.openevse_id, self.openevse_name)
+            SLXOpenEvse.check_all_entities(
+                self.hass, self.openevse_id, self.openevse_name
+            )
             is False
         ):
             _LOGGER.error(
                 "OpenEVSE device wasn't found or there were not all required entities"
             )
+            return False
         else:
-            self.__subscribe_entity(
-                SLXOpenEVSE.__traslate_entity_name(
+            self._subscribe_entity(
+                SLXOpenEvse.__traslate_entity_name(
                     WatchedEntities["sessionenergy"], self.openevse_slugified_name
                 ),
                 cb_sessionenergy,
             )
-            self.__subscribe_entity(
-                SLXOpenEVSE.__traslate_entity_name(
+            self._subscribe_entity(
+                SLXOpenEvse.__traslate_entity_name(
                     WatchedEntities["plug"], self.openevse_slugified_name
                 ),
                 cb_plug,
@@ -109,26 +114,19 @@ class SLXOpenEVSE:
             )
         return result
 
-    def __subscribe_entity(
-        self, entity_name: str, external_calback: Callable[[Event], Any]
-    ) -> None:
-        self.unsub_dict[entity_name] = async_track_state_change_event(
-            self.hass, entity_name, external_calback
-        )
-
-    def _get_value(self, name: str) -> Any:
+    def _get_value_translated(self, name: str) -> Any:
         translated_name: str | None = None
 
         if name in GetEntities:
-            translated_name = SLXOpenEVSE.__traslate_entity_name(
+            translated_name = SLXOpenEvse.__traslate_entity_name(
                 GetEntities[name], self.openevse_slugified_name
             )
         if name in SetEntities:
-            translated_name = SLXOpenEVSE.__traslate_entity_name(
+            translated_name = SLXOpenEvse.__traslate_entity_name(
                 SetEntities[name], self.openevse_slugified_name
             )
         if name in WatchedEntities:
-            translated_name = SLXOpenEVSE.__traslate_entity_name(
+            translated_name = SLXOpenEvse.__traslate_entity_name(
                 WatchedEntities[name], self.openevse_slugified_name
             )
 
@@ -140,13 +138,14 @@ class SLXOpenEVSE:
             return None
         return entity_state.state
 
-    def _set_value(self, name: str, value: Any) -> bool:
+    def _set_value_translated(self, name: str, value: Any) -> bool:
         if name in SetEntities:
+            translated_name = SLXOpenEvse.__traslate_entity_name(
+                SetEntities[name], self.openevse_slugified_name
+            )
             self.hass.async_add_executor_job(
                 self.hass.states.set,
-                SLXOpenEVSE.__traslate_entity_name(
-                    SetEntities[name], self.openevse_slugified_name
-                ),
+                translated_name,
                 value,
                 {},
             )
@@ -161,7 +160,7 @@ class SLXOpenEVSE:
                 "select",
                 "select_option",
                 {
-                    "entity_id": SLXOpenEVSE.__traslate_entity_name(
+                    "entity_id": SLXOpenEvse.__traslate_entity_name(
                         SetEntities[name], self.openevse_slugified_name
                     ),
                     "option": value,
@@ -212,25 +211,25 @@ class SLXOpenEVSE:
         self.charge_mode = mode
 
         if self.charge_mode == CHR_MODE_STOPPED:
-            if self._get_value("divertmode") != "fast":
+            if self._get_value_translated("divertmode") != "fast":
                 self._select_option("divertmode", "fast")
             self._activate_override(False)
             return
 
         if self.charge_mode == CHR_MODE_PVCHARGE:
-            if self._get_value("divertmode") != "eco":
+            if self._get_value_translated("divertmode") != "eco":
                 self._select_option("divertmode", "eco")
             self._clear_override()
             return
 
         if self.charge_mode == CHR_MODE_NORMAL:
-            if self._get_value("divertmode") != "fast":
+            if self._get_value_translated("divertmode") != "fast":
                 self._select_option("divertmode", "fast")
             self._activate_override(True)
             return
 
     def get_session_energy(self) -> float | None:
-        value_str = self._get_value("sessionenergy")
+        value_str = self._get_value_translated("sessionenergy")
         if value_str is None:
             _LOGGER.warning("Get_session_energy - value_str is None")
             return None
@@ -278,7 +277,7 @@ class SLXOpenEVSE:
 
     @staticmethod
     def get_openevse_devicename(hass: HomeAssistant, device_id: str) -> str | None:
-        found_devices = SLXOpenEVSE.find_openevse_devices(hass)
+        found_devices = SLXOpenEvse.find_openevse_devices(hass)
         if device_id in found_devices:
             return found_devices[device_id]
         else:
@@ -291,14 +290,14 @@ class SLXOpenEVSE:
         """Checks if we have OpenEVSE device with all required entities"""
 
         if device_name is None:
-            device_name = SLXOpenEVSE.get_openevse_devicename(hass, device_id)
+            device_name = SLXOpenEvse.get_openevse_devicename(hass, device_id)
 
         if device_name is None:
             return False
 
-        slugified_device_name = SLXOpenEVSE._slugify_device_name(device_name)
+        slugified_device_name = SLXOpenEvse._slugify_device_name(device_name)
 
-        entity_list = SLXOpenEVSE._find_device_entities(hass, device_id)
+        entity_list = SLXOpenEvse._find_device_entities(hass, device_id)
         if not entity_list:
             return False
 
@@ -310,7 +309,7 @@ class SLXOpenEVSE:
         for checking_list in to_check_list:
             for entity_template in checking_list.values():
                 list_of_entity_names.append(
-                    SLXOpenEVSE.__traslate_entity_name(
+                    SLXOpenEvse.__traslate_entity_name(
                         entity_template, slugified_device_name
                     )
                 )

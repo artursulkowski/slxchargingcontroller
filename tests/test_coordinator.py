@@ -12,11 +12,15 @@ import homeassistant.util.dt as dt_util
 from time import sleep
 from datetime import datetime, timedelta
 from freezegun import freeze_time
+from freezegun.api import FrozenDateTimeFactory
+
 import logging
 from unittest.mock import patch
 
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+# from tests.common import async_fire_time_changed
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 
 
@@ -36,11 +40,11 @@ async def test_create_coordinator(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert len(hass.states.async_entity_ids(SENSOR_DOMAIN)) == 4
-    # coordinator = hass.data[config_entry.domain][config_entry.entry_id]
-    # assert coordinator.data is not None
 
 
-async def test_coordinator_data(hass: HomeAssistant) -> None:
+async def test_coordinator_data(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
     config_entry = MockConfigEntry(**FIXTURE_CONFIG_ENTRY)
 
     config_entry.add_to_hass(hass)
