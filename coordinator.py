@@ -180,6 +180,10 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.target_soc = self.data[ENT_SOC_TARGET]
         self.charging_manager.charge_method = self.data[ENT_CHARGE_METHOD]
 
+    def cleanup(self):
+        if self.charging_manager is not None:
+            self.charging_manager.cleanup()
+
     def create_auto_evse(self, configuration: str) -> bool:
         if configuration == "manual":
             return False
