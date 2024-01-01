@@ -202,6 +202,10 @@ class SLXChargingManager:
             self.callback_bat_update,
         )
 
+    def cleanup(self):
+        self.timer_soc_request_timeout.cancel_timer()
+        self.timer_next_soc_request.cancel_timer()
+
     def set_energy_estimated_callback(self, ext_callback: Callable[[float], None]):
         self._callback_energy_estimated = ext_callback
 

@@ -39,6 +39,10 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
             ]
         )
     )
+
+    coordinator: SLXChgCtrlUpdateCoordinator = hass.data[DOMAIN][config_entry.unique_id]
+    coordinator.cleanup()
+
     hass.data[DOMAIN].pop(config_entry.unique_id)
     return unload_ok
 

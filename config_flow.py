@@ -42,7 +42,7 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
 )
 
-from .slxopenevse import SLXOpenEVSE
+from .slxopenevse import SLXOpenEvse
 from .slxkiahyundai import SLXKiaHyundai
 from .slxcar import SLXCar
 from .slxbmw import SLXBmw
@@ -195,10 +195,10 @@ class SLXConfigFlow:
     ) -> vol.Schema:
         list_openevse: dict[str, Any] = {}
 
-        openevse_devices = SLXOpenEVSE.find_openevse_devices(hass)
+        openevse_devices = SLXOpenEvse.find_openevse_devices(hass)
 
         for device_id, device_name in openevse_devices.items():
-            if SLXOpenEVSE.check_all_entities(hass, device_id, device_name):
+            if SLXOpenEvse.check_all_entities(hass, device_id, device_name):
                 list_openevse[f"openevse.{device_id}"] = f"OpenEVSE: {device_name}"
                 _LOGGER.info(
                     "Found correct OpenEVSE deviceID: %s, deviceName: %s",
