@@ -11,14 +11,16 @@ from custom_components.slxchargingcontroller.slxcar import SLXCar
 from custom_components.slxchargingcontroller.coordinator import (
     SLXChgCtrlUpdateCoordinator,
 )
+
+from custom_components.slxchargingcontroller.const import CONF_EVSE_SESSION_ENERGY
 import homeassistant.util.dt as dt_util
-from time import sleep
 from datetime import datetime, timedelta
-from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory
 
 import logging
 from unittest.mock import patch
+
+import pytest
 
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -30,6 +32,7 @@ from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 import sys
 
 sys.path.append("/workspaces/core/tests")
+
 from common import async_fire_time_changed
 
 _LOGGER = logging.getLogger(__name__)
@@ -119,3 +122,20 @@ async def test_coordinator_soc_timeout(
         coordinator.charging_manager._car_connected_status
         == CarConnectedStates.autopilot
     )
+
+
+async def test_create_coordinator_fixture(
+    hass: HomeAssistant, coordinator_factory
+) -> None:
+    coordinator_instance: SLXChgCtrlUpdateCoordinator = await coordinator_factory
+    assert coordinator_instance.charging_manager is not None
+    assert len(hass.states.async_entity_ids(SENSOR_DOMAIN)) == 4
+    assert coordinator_instance.evse._session_energy_name == "evsetest.energy"
+
+
+# this is how I can overwrite the default configuration settings
+@pytest.mark.fixt_data({CONF_EVSE_SESSION_ENERGY: "point_evse"})
+async def test_alternative_fixture(hass: HomeAssistant, coordinator_factory) -> None:
+    coordinator_instance: SLXChgCtrlUpdateCoordinator = await coordinator_factory
+    assert coordinator_instance.charging_manager is not None
+    assert coordinator_instance.evse._session_energy_name == "point_evse"
