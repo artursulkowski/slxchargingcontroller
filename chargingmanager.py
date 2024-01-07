@@ -363,10 +363,15 @@ class SLXChargingManager:
     def plug_disconnected(self):
         """called when plug got disconnected"""
         _LOGGER.info("Plug disconnected")
+
+        # Here we can prepare summary of charging session.
+
         self._attr_charging_active = False
         self._car_connected_status = None
 
-        # Here we can prepare summary of charging session.
+        self._attr_bat_energy_estimated = None
+        self._attr_bat_soc_estimated = None
+        self._attr_charging_session_duration = None
 
         self._energy_tracker.disconnect_plug()
 
@@ -399,8 +404,7 @@ class SLXChargingManager:
         self.timer_next_soc_request.schedule_timer()
         if self._car_connected_status is CarConnectedStates.ramping_up:
             self._car_connected_status = CarConnectedStates.autopilot
-            # TODO - ADD recalculating EVSE mode
-            _LOGGER.error("We need to handle recalculation of EVSE state")
+            self.calculate_evse_state()
             return
 
     @callback
