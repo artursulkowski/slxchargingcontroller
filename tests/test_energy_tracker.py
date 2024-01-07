@@ -31,7 +31,6 @@ def test_energy_tracker_timemachine():
         assert 0.499 < added_energy < 0.501
 
 
-# https://github.com/spulec/freezegun
 def test_energy_tracker_soc_before():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
@@ -47,7 +46,6 @@ def test_energy_tracker_soc_before():
         assert added_energy == 0.0
 
 
-# https://github.com/spulec/freezegun
 def test_energy_tracker_soc_before_fail():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
@@ -81,7 +79,6 @@ def test_energy_tracker_soc_after():
         assert added_energy == 0
 
 
-# https://github.com/spulec/freezegun
 def test_energy_tracker_soc_fail():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
