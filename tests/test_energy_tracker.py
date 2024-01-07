@@ -17,6 +17,7 @@ def test_energy_tracker_timemachine():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
         can_calculate: bool = False
+        energy_tracker.connect_plug()
         can_calculate = energy_tracker.add_entry(10)
         frozen_datetime.tick(delta=timedelta(seconds=10))
         assert can_calculate is False
@@ -35,11 +36,10 @@ def test_energy_tracker_soc_before():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
         can_calculate: bool = False
-
         energy_tracker.update_soc(dt_util.utcnow(), 50)
 
         frozen_datetime.tick(delta=timedelta(seconds=290))
-
+        energy_tracker.connect_plug()
         can_calculate = energy_tracker.add_entry(10)
         assert can_calculate is True
 
@@ -52,11 +52,9 @@ def test_energy_tracker_soc_before_fail():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
         can_calculate: bool = False
-
         energy_tracker.update_soc(dt_util.utcnow(), 50)
-
         frozen_datetime.tick(delta=timedelta(seconds=310))
-
+        energy_tracker.connect_plug()
         can_calculate = energy_tracker.add_entry(10)
         assert can_calculate is False
 
@@ -70,6 +68,7 @@ def test_energy_tracker_soc_after():
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
         can_calculate: bool = False
 
+        energy_tracker.connect_plug()
         can_calculate = energy_tracker.add_entry(10)
         assert can_calculate is False
 
@@ -87,7 +86,7 @@ def test_energy_tracker_soc_fail():
     with freeze_time("Jan 1, 2023") as frozen_datetime:
         energy_tracker = SlxEnergyTracker(soc_before_energy=300, soc_after_energy=200)
         can_calculate: bool = False
-
+        energy_tracker.connect_plug()
         can_calculate = energy_tracker.add_entry(10)
         assert can_calculate is False
 
