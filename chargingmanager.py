@@ -147,6 +147,19 @@ class SlxEnergyTracker:
     def get_stored_soc(self) -> float:
         return self._soc_information[1]
 
+    def soc_validity(self) -> int:
+        """returns for how long is SOC valid. Value in seconds >= 0"""
+        soc_time = self._soc_information[0]
+        if soc_time is None:
+            return 0
+
+        age_of_soc: timedelta = dt_util.utcnow() - soc_time
+        remaining_valid: int = self._soc_before_energy - age_of_soc.seconds
+        if remaining_valid < 0:
+            return 0
+        else:
+            return remaining_valid
+
 
 class SLXChargingManager:
     """Class for Charging Manager"""
@@ -287,10 +300,6 @@ class SLXChargingManager:
             self.calculate_evse_state()
 
     def set_soc_level(self, new_soc_level: float, new_soc_update: datetime = None):
-        # in case we have car not connected - just ignore SOC updates.
-        if self._attr_charging_active is False:
-            return
-
         self.timer_soc_request_timeout.cancel_timer()
 
         soc_update_time = new_soc_update
@@ -324,6 +333,7 @@ class SLXChargingManager:
         self._attr_bat_soc_estimated = (
             self._attr_bat_energy_estimated * 100 / self.battery_capacity
         )
+
         if self._callback_energy_estimated is not None:
             # passing estimated energy to callback - however - this values is not used directly (to be removed)
             self._car_connected_status = CarConnectedStates.soc_known
@@ -337,10 +347,17 @@ class SLXChargingManager:
         self._attr_charging_active = True
         self._car_connected_status = CarConnectedStates.ramping_up
 
-        # Request Bat SOC Update
-        self.request_bat_soc_update()
+        # TODO - add to energy tracker chacking if SOC requires refresh. As return it will return - how long is still SOC valid in seconds.
+        remaining_validity_of_soc = self._energy_tracker.soc_validity()
+        _LOGGER.info("Remaining validity of SOC %d [s]", remaining_validity_of_soc)
 
         self._time_of_start_charging = dt_util.utcnow()
+
+        if remaining_validity_of_soc == 0:
+            self.request_bat_soc_update()
+        else:
+            self._car_connected_status = CarConnectedStates.soc_known
+            self.calculate_evse_state()
 
     def plug_disconnected(self):
         """called when plug got disconnected"""
