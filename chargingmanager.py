@@ -57,12 +57,23 @@ class SlxEnergyTracker:
         self._session_energy_at_soc: float = None
         self._soc_before_energy = soc_before_energy
         self._soc_after_energy = soc_after_energy
+        self._plug_connected: bool = False
 
-    def clear_history(self):
+    def _clear_history(self):
         self._session_energy_history.clear()
         self._session_energy_at_soc = None
 
+    def connect_plug(self):
+        self._plug_connected = True
+
+    def disconnect_plug(self):
+        self._plug_connected = False
+        self._clear_history()
+
     def add_entry(self, new_session_energy: float) -> bool:
+        # if plug is not connected skip adding energy to the storage
+        if self._plug_connected is False:
+            return False
         self._session_energy_history.append((dt_util.utcnow(), new_session_energy))
         return self.calculate_estimated_session()
 
@@ -72,6 +83,8 @@ class SlxEnergyTracker:
 
     def calculate_estimated_session(self) -> bool:
         # few conditions need to be met to calculate ammount of energy
+        if self._plug_connected is False:
+            return False
         length_of_history = len(self._session_energy_history)
 
         # if no soc information is provided - we cannot estimate SOC
@@ -229,20 +242,6 @@ class SLXChargingManager:
         self._callback_set_charger_mode = ext_callback
 
     @property
-    def plug_status(self):
-        return self._plug_status
-
-    @plug_status.setter
-    def plug_status(self, new_plug_status: bool):
-        if self._plug_status == new_plug_status:
-            return
-        if new_plug_status is True:
-            self.plug_connected()
-        elif new_plug_status is False:
-            self.plug_disconnected()
-        self._plug_status = new_plug_status
-
-    @property
     def battery_capacity(self):
         return self._battery_capacity
 
@@ -341,23 +340,25 @@ class SLXChargingManager:
 
         self.calculate_evse_state()
 
-    def plug_connected(self):
+    def plug_connected(
+        self, new_charger_energy: float = None, new_time: datetime = None
+    ):
         """called when plug is connected"""
         _LOGGER.info("Plug connected")
         self._attr_charging_active = True
-        self._car_connected_status = CarConnectedStates.ramping_up
 
-        # TODO - add to energy tracker chacking if SOC requires refresh. As return it will return - how long is still SOC valid in seconds.
-        remaining_validity_of_soc = self._energy_tracker.soc_validity()
-        _LOGGER.info("Remaining validity of SOC %d [s]", remaining_validity_of_soc)
+        self._energy_tracker.connect_plug()
+        if new_charger_energy is not None:
+            self._energy_tracker.add_entry(new_charger_energy)
 
-        self._time_of_start_charging = dt_util.utcnow()
-
-        if remaining_validity_of_soc == 0:
-            self.request_bat_soc_update()
-        else:
+        can_calculate = self._energy_tracker.calculate_estimated_session()
+        if can_calculate:
             self._car_connected_status = CarConnectedStates.soc_known
+            self.recalculate_energy()
             self.calculate_evse_state()
+        else:
+            self._car_connected_status = CarConnectedStates.ramping_up
+            self.request_bat_soc_update()
 
     def plug_disconnected(self):
         """called when plug got disconnected"""
@@ -367,9 +368,7 @@ class SLXChargingManager:
 
         # Here we can prepare summary of charging session.
 
-        # We are clearing energy history after plug is disconnected
-        # We cannot at the connection moment as we can get session energy before plug connected information
-        self._energy_tracker.clear_history()
+        self._energy_tracker.disconnect_plug()
 
     def request_bat_soc_update(self):
         """Requests now for Battery SOC update"""

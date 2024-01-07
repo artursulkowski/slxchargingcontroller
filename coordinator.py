@@ -412,12 +412,14 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     def callback_charger_plug_connected(self, event: Event) -> None:
         value = self.extract_bool_state(event.data["new_state"])
         _LOGGER.info("Callback - charger plug connected %s", value)
-        self.charging_manager.plug_status = value
-        ## Getting session energy at the moment when plug is connected.
-        if self.evse is not None:
-            energy = self.evse.get_session_energy()
-            if energy is not None:
-                self.charging_manager.add_charger_energy(energy)
+        if value is True:
+            # Try to get session energy at the moment when plug is connected.
+            evse_energy: float = None
+            if self.evse is not None:
+                evse_energy = self.evse.get_session_energy()
+            self.charging_manager.plug_connected(evse_energy)
+        else:
+            self.charging_manager.plug_disconnected()
 
     @callback
     def callback_soc_level(self, event: Event) -> None:

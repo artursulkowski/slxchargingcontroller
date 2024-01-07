@@ -118,14 +118,6 @@ async def test_create_coordinator_fixture(
     assert coordinator_instance.evse._session_energy_name == "evsetest.energy"
 
 
-# this is how I can overwrite the default configuration settings
-@pytest.mark.fixt_data({CONF_EVSE_SESSION_ENERGY: "point_evse"})
-async def test_alternative_fixture(hass: HomeAssistant, coordinator_factory) -> None:
-    coordinator_instance: SLXChgCtrlUpdateCoordinator = await coordinator_factory
-    assert coordinator_instance.charging_manager is not None
-    assert coordinator_instance.evse._session_energy_name == "point_evse"
-
-
 # scenarios to be tested in coordinator.
 # Functional tests
 # - requesting soc update and correctly handling it's retry, timeout
@@ -176,11 +168,12 @@ async def test_soc_request_after_plugged(
 
 
 async def test_no_soc_request_after_plugged(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, coordinator_factory
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, coordinator_factory, caplog
 ) -> None:
     """Tests if car is not asked for SOC update after plug is being connected - when SOC is "fresh" enough"""
 
     coordinator: SLXChgCtrlUpdateCoordinator = await coordinator_factory
+    # caplog.set_level(logging.debug)
     _LOGGER.info(coordinator.car_config)
     _LOGGER.info(coordinator)
     assert coordinator is not None
@@ -236,3 +229,14 @@ async def test__template(
     hass: HomeAssistant, freezer: FrozenDateTimeFactory, coordinator_factory
 ) -> None:
     coordinator: SLXChgCtrlUpdateCoordinator = await coordinator_factory
+
+
+## TODO - for some reason this fixt_data is remaining as active impacting any further tests. As workaround temporary moved as the last test.
+
+
+# this is how I can overwrite the default configuration settings
+@pytest.mark.fixt_data({CONF_EVSE_SESSION_ENERGY: "point_evse"})
+async def test_alternative_fixture(hass: HomeAssistant, coordinator_factory) -> None:
+    coordinator_instance: SLXChgCtrlUpdateCoordinator = await coordinator_factory
+    assert coordinator_instance.charging_manager is not None
+    assert coordinator_instance.evse._session_energy_name == "point_evse"
