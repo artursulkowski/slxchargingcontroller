@@ -16,7 +16,8 @@ PLATFORMS: list[Platform] = [Platform.NUMBER, Platform.SENSOR, Platform.SELECT]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Salix Charging controller from a config entry."""
 
-    coordinator = SLXChgCtrlUpdateCoordinator(hass, entry)
+    coordinator = SLXChgCtrlUpdateCoordinator(hass)
+    await coordinator.initialize(entry)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.unique_id] = coordinator

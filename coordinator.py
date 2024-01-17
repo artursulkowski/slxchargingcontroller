@@ -52,6 +52,7 @@ from .slxcar import SLXCar
 from .slxkiahyundai import SLXKiaHyundai
 from .slxbmw import SLXBmw
 from .slxcarmanual import SLXCarManual
+from .slxtripplanner import SLXTripPlanner
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry
@@ -66,7 +67,16 @@ _LOGGER = logging.getLogger(__name__)
 class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
     """Main class storing state and refresing it"""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+        )
+
+    async def initialize(self, config_entry: ConfigEntry) -> None:
         self.platforms: set[str] = set()
 
         # currenlty CONF_SCAN_INTERVAL is not set in configuration flow.
@@ -74,7 +84,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL) * 60
         )
 
-        self.hass = hass
+        self.trip_planner = SLXTripPlanner()
 
         # First setup a car - as we will need a configuration from the car!
 
@@ -120,7 +130,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         timer_read_soc = self.car.dynamic_config[SLXCar.CONF_SOC_READING_DELAY]
         if timer_read_soc > 0 and self._delay_soc_update is True:
             self._timer_read_soc = SlxTimer(
-                hass,
+                self.hass,
                 timedelta(seconds=timer_read_soc),
                 self.callback_soc_delayed,
             )
@@ -129,14 +139,14 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         soc_update_retry_time = self.car.dynamic_config[SLXCar.CONF_SOC_UPDATE_RETRY]
         if soc_update_retry_time > 0:
             self._timer_soc_update_retry = SlxTimer(
-                hass,
+                self.hass,
                 timedelta(seconds=soc_update_retry_time),
                 self.callback_soc_requested_retry,
             )
 
         # Setup charging manager
 
-        self.charging_manager = SLXChargingManager(hass, self.car_config)
+        self.charging_manager = SLXChargingManager(self.hass, self.car_config)
         self.charging_manager.set_energy_estimated_callback(
             self.callback_energy_estimated
         )
@@ -156,14 +166,6 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         if evse_configured is False:
             evse_configured = self.create_manual_evse(config_entry)
         ################### Continue configuration
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=DOMAIN,
-            # disable
-            # update_interval=timedelta(seconds=self.scan_interval),
-        )
 
         # I need to initialize data after parent class.
         # If not done at that order parent's init will overwrite self.data
@@ -289,6 +291,8 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Update function called periodically - can add some updates here")
 
     async def set_soc_min(self, value: float):
+        await self.trip_planner.initialize(self.hass)
+
         # self.ent_soc_min = value
         _LOGGER.info("User set entity value, soc_min = %.1f", value)
         self.data[ENT_SOC_LIMIT_MIN] = value
