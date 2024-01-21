@@ -84,8 +84,6 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL) * 60
         )
 
-        self.trip_planner = SLXTripPlanner()
-
         # First setup a car - as we will need a configuration from the car!
 
         ### Connect to Car integration
@@ -181,6 +179,13 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         self.charging_manager.soc_maximum = self.data[ENT_SOC_LIMIT_MAX]
         self.charging_manager.target_soc = self.data[ENT_SOC_TARGET]
         self.charging_manager.charge_method = self.data[ENT_CHARGE_METHOD]
+
+        odometer_entity = self.car.odometer_entity()
+        self.trip_planner = SLXTripPlanner(self.hass)
+
+        if odometer_entity is not None:
+            await self.trip_planner.initialize(odometer_entity)
+            await self.trip_planner.process_historical_odometer()
 
     def cleanup(self):
         if self.charging_manager is not None:
@@ -291,8 +296,6 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Update function called periodically - can add some updates here")
 
     async def set_soc_min(self, value: float):
-        await self.trip_planner.initialize(self.hass)
-
         # self.ent_soc_min = value
         _LOGGER.info("User set entity value, soc_min = %.1f", value)
         self.data[ENT_SOC_LIMIT_MIN] = value

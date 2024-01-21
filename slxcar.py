@@ -216,6 +216,9 @@ class SLXCar:
     def request_soc_update(self) -> bool:
         pass
 
+    def odometer_entity(self) -> str | None:
+        return None
+
 
 ## TODO - move as many as possible helper classes from slxkiahyundai.
 ## Skip public methods
