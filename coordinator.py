@@ -185,7 +185,7 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
 
         if odometer_entity is not None:
             await self.trip_planner.initialize(odometer_entity)
-            await self.trip_planner.process_historical_odometer()
+            await self.trip_planner.capture_odometer()
 
     def cleanup(self):
         if self.charging_manager is not None:

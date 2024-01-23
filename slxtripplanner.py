@@ -34,12 +34,13 @@ class SLXTripPlanner:
         self.odometer_entity = odometer_entity
         self.odometer_list: list[datetime, float] = []
 
-    async def process_historical_odometer(self):
-        if self.process_historical_odometer is None:
-            return
+    # I will move capturing of data from recorder here so I can mock it easily in tests without the need to real with the recorder.
+    # Other function should play more with extending storage using odometer data.
+    async def _get_historical_odometer(self, daysback: int) -> list[(datetime, float)]:
+        temp_list: list[(datetime, float)] = []
         _LOGGER.info("Process odometer, entity name = %s", self.odometer_entity)
         end_time = dt_util.utcnow()
-        start_time = end_time - timedelta(days=7)
+        start_time = end_time - timedelta(days=daysback)
 
         events = await self.hass.async_add_executor_job(
             history.state_changes_during_period,
@@ -49,23 +50,25 @@ class SLXTripPlanner:
             self.odometer_entity,
         )
 
-        odometer_list: list[datetime, float] = []
-
         for event in events[self.odometer_entity]:
             try:
                 value_odometer = float(event.state)
             except ValueError:
                 value_odometer = None
-
             if value_odometer is not None and event.last_changed is not None:
-                odometer_list.append((event.last_changed, value_odometer))
-        _LOGGER.warning(odometer_list)
+                temp_list.append((event.last_changed, value_odometer))
+        return temp_list
 
     async def read_storage(self) -> bool:
         store = storage.Store(self.hass, 1, ODOMETER_STORAGE_KEY)
         data_read = await store.async_load()
         # odometer_list: list[datetime, float] = []
-        list_odo_read = data_read[self.odometer_entity]
+        if data_read is None:
+            return False
+        try:
+            list_odo_read = data_read[self.odometer_entity]
+        except KeyError:
+            return False
         _LOGGER.info(list_odo_read)
         for x, y in list_odo_read:
             try:
@@ -77,3 +80,24 @@ class SLXTripPlanner:
             if dt_obj is not None:
                 self.odometer_list.append((dt_obj, y))
         return True
+
+    async def capture_odometer(self):
+        _LOGGER.info("Process odometer, entity name = %s", self.odometer_entity)
+        await self.read_storage()
+
+        # merge two lists
+        # assume that storage is time-sorted!
+        # when re-writing historical odometer to the storage - check that it's time sorted!
+        last_stored_date: datetime | None = None
+        if len(self.odometer_list) > 0:
+            last_stored_date = self.odometer_list[-1][0]
+
+        days_back = 30
+        odometer_list = await self._get_historical_odometer(days_back)
+
+        for time, odometer in odometer_list:
+            _LOGGER.info(time)
+            _LOGGER.info(odometer)
+            if (last_stored_date is None) or (time > last_stored_date):
+                last_stored_date = time
+                self.odometer_list.append((time, odometer))
