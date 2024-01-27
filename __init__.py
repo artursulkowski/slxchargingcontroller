@@ -10,7 +10,12 @@ from homeassistant.core import HomeAssistant
 from .coordinator import SLXChgCtrlUpdateCoordinator
 from .const import DOMAIN
 
-PLATFORMS: list[Platform] = [Platform.NUMBER, Platform.SENSOR, Platform.SELECT]
+PLATFORMS: list[Platform] = [
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SELECT,
+    Platform.CALENDAR,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
