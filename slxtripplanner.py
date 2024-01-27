@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, date
 
 import logging
 import asyncio
@@ -28,11 +28,11 @@ ODOMETER_STORAGE_KEY = "slxintegration_storage"
 class SLXTripPlanner:
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
-        pass
+        self.odometer_list: list[datetime, float] = []
+        self.daily_drive: list[date, float] = []
 
     async def initialize(self, odometer_entity: str):
         self.odometer_entity = odometer_entity
-        self.odometer_list: list[datetime, float] = []
 
     # I will move capturing of data from recorder here so I can mock it easily in tests without the need to real with the recorder.
     # Other function should play more with extending storage using odometer data.
@@ -92,7 +92,7 @@ class SLXTripPlanner:
         if len(self.odometer_list) > 0:
             last_stored_date = self.odometer_list[-1][0]
 
-        days_back = 30
+        days_back = 60
         odometer_list = await self._get_historical_odometer(days_back)
 
         for time, odometer in odometer_list:
@@ -101,3 +101,55 @@ class SLXTripPlanner:
             if (last_stored_date is None) or (time > last_stored_date):
                 last_stored_date = time
                 self.odometer_list.append((time, odometer))
+
+        self.calculate_daily()
+
+    def calculate_daily(self):
+        if len(self.daily_drive) > 0:
+            _LOGGER.warning("Missing implementation of incremental recalculation")
+            self.daily_drive.clear()
+
+        currently_processed_day: date | None = None
+        currently_processed_odo_start: float | None
+        currently_processed_odo_end: float | None
+
+        for odo_time, odo_distance in self.odometer_list:
+            _LOGGER.info("Time %s:Value %.1f", odo_time, odo_distance)
+            odo_date_current: date = odo_time.date()
+
+            # first entry
+            if currently_processed_day is None:
+                currently_processed_day = odo_date_current
+                currently_processed_odo_start = odo_distance
+
+            # we are still in the same day
+            if currently_processed_day == odo_date_current:
+                currently_processed_odo_end = odo_distance
+
+            # we started processing new day!
+            if odo_date_current > currently_processed_day:
+                # summarize previously processed days!
+
+                days_diff = (odo_date_current - currently_processed_day).days
+                if days_diff < 2:
+                    to_store = (
+                        currently_processed_day,
+                        currently_processed_odo_end - currently_processed_odo_start,
+                    )
+                    self.daily_drive.append(to_store)
+                else:
+                    distance_per_day = (
+                        currently_processed_odo_end - currently_processed_odo_start
+                    ) / days_diff
+                    for n in range(days_diff):
+                        to_store = (
+                            currently_processed_day + timedelta(days=n),
+                            distance_per_day,
+                        )
+                        self.daily_drive.append(to_store)
+
+                # switch to a new day
+                currently_processed_day = odo_date_current
+                currently_processed_odo_start = currently_processed_odo_end
+                currently_processed_odo_end = odo_distance
+        # TODO - summarize last and not finished day!

@@ -70,7 +70,7 @@ async def test_tripplanner_historical_odometer(
         tripplanner = SLXTripPlanner(hass)
         await tripplanner.initialize(ODOMETER_ENTITY_NAME)
         await tripplanner.capture_odometer()
-        historical_odometer.assert_called_once_with(30)
+        historical_odometer.assert_called_once_with(60)
 
 
 async def test_tripplanner_merge_storage_and_historical(
@@ -89,6 +89,6 @@ async def test_tripplanner_merge_storage_and_historical(
     ) as historical_odometer:
         freezer.move_to(odometer_test_Time)
         await tripplanner.capture_odometer()
-        historical_odometer.assert_called_once_with(30)
+        historical_odometer.assert_called_once_with(60)
         list_odo = tripplanner.odometer_list
         assert len(list_odo) == 8
