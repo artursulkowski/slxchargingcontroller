@@ -6,6 +6,9 @@ from custom_components.slxchargingcontroller.slxtripplanner import (
     SLXTripPlanner,
     ODOMETER_STORAGE_KEY,
 )
+
+from custom_components.slxchargingcontroller.const import ODOMETER_DAYS_BACK
+
 from homeassistant.helpers import storage
 
 import homeassistant.util.dt as dt_util
@@ -35,7 +38,7 @@ odometer_list_entity: list[(datetime, float)] = [
     (datetime.fromisoformat("2024-01-26 19:54:41.0+00:00"), 1720.2),
 ]
 
-odometer_test_Time = datetime.fromisoformat("2024-01-27 13:14:15.0+00:00")
+odometer_test_time = datetime.fromisoformat("2024-01-27 13:14:15.0+00:00")
 
 
 async def test_tripplanner_storage_read(hass: HomeAssistant) -> None:
@@ -70,7 +73,7 @@ async def test_tripplanner_historical_odometer(
         tripplanner = SLXTripPlanner(hass)
         await tripplanner.initialize(ODOMETER_ENTITY_NAME)
         await tripplanner.capture_odometer()
-        historical_odometer.assert_called_once_with(60)
+        historical_odometer.assert_called_once_with(ODOMETER_DAYS_BACK)
 
 
 async def test_tripplanner_merge_storage_and_historical(
@@ -87,8 +90,10 @@ async def test_tripplanner_merge_storage_and_historical(
         "custom_components.slxchargingcontroller.slxtripplanner.SLXTripPlanner._get_historical_odometer",
         return_value=odometer_list_entity,
     ) as historical_odometer:
-        freezer.move_to(odometer_test_Time)
+        freezer.move_to(odometer_test_time)
         await tripplanner.capture_odometer()
-        historical_odometer.assert_called_once_with(60)
+        historical_odometer.assert_called_once_with(
+            3
+        )  # diff between  odometer_test_time and last entry is 2 full days but we are checking one day extra
         list_odo = tripplanner.odometer_list
         assert len(list_odo) == 8

@@ -6,6 +6,7 @@ from datetime import timedelta, datetime, date
 
 import logging
 import asyncio
+import os
 
 from typing import Any
 
@@ -17,6 +18,9 @@ from homeassistant.components.recorder import history
 
 from homeassistant.helpers import storage
 import homeassistant.util.dt as dt_util
+
+from .const import ODOMETER_DAYS_BACK
+from .fileflag import is_flag_active, FLAG_CLEAR_STORAGE
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +63,10 @@ class SLXTripPlanner:
                 temp_list.append((event.last_changed, value_odometer))
         return temp_list
 
+    async def clear_storage(self):
+        store = storage.Store(self.hass, 1, ODOMETER_STORAGE_KEY)
+        await store.async_remove()
+
     async def read_storage(self) -> bool:
         store = storage.Store(self.hass, 1, ODOMETER_STORAGE_KEY)
         data_read = await store.async_load()
@@ -69,11 +77,9 @@ class SLXTripPlanner:
             list_odo_read = data_read[self.odometer_entity]
         except KeyError:
             return False
-        _LOGGER.info(list_odo_read)
         for x, y in list_odo_read:
             try:
                 dt_obj = datetime.fromisoformat(x)
-                _LOGGER.info("Time %s Value %.1f", x, y)
             except Exception:  # pylint: disable=broad-except
                 dt_obj = None
                 _LOGGER.warning("Invalid time format %s", x)
@@ -81,9 +87,24 @@ class SLXTripPlanner:
                 self.odometer_list.append((dt_obj, y))
         return True
 
+    async def write_storage(self) -> bool:
+        store = storage.Store(self.hass, 1, ODOMETER_STORAGE_KEY)
+        entries_to_write = len(self.odometer_list)
+        if entries_to_write > 0:
+            data_for_write = {self.odometer_entity: self.odometer_list}
+            await store.async_save(data_for_write)
+            _LOGGER.info("Writen odometer storage with %d entries", entries_to_write)
+            return True
+        return False
+
     async def capture_odometer(self):
-        _LOGGER.info("Process odometer, entity name = %s", self.odometer_entity)
-        await self.read_storage()
+        if is_flag_active(FLAG_CLEAR_STORAGE):
+            _LOGGER.info("Detected flag for clearing the storage")
+            await self.clear_storage()
+        else:
+            await self.read_storage()
+
+        stats_read_storage: int = len(self.odometer_list)
 
         # merge two lists
         # assume that storage is time-sorted!
@@ -92,17 +113,35 @@ class SLXTripPlanner:
         if len(self.odometer_list) > 0:
             last_stored_date = self.odometer_list[-1][0]
 
-        days_back = 60
-        odometer_list = await self._get_historical_odometer(days_back)
+        max_days_back = ODOMETER_DAYS_BACK
+        if last_stored_date is not None:
+            time_now = dt_util.as_utc(dt_util.now())
+            how_old_storage: timedelta = time_now - last_stored_date
+            num_days = how_old_storage.days + 1
+            if num_days < max_days_back:
+                max_days_back = num_days
+
+        _LOGGER.info("Capture odometer history from %d days", max_days_back)
+        odometer_list = await self._get_historical_odometer(max_days_back)
+        stats_read_odometer_history: int = len(odometer_list)
 
         for time, odometer in odometer_list:
-            _LOGGER.info(time)
-            _LOGGER.info(odometer)
             if (last_stored_date is None) or (time > last_stored_date):
                 last_stored_date = time
                 self.odometer_list.append((time, odometer))
 
         self.calculate_daily()
+        stats_to_store: int = len(self.odometer_list)
+        stats_daily_entries = len(self.daily_drive)
+        if stats_to_store > stats_read_storage:
+            await self.write_storage()
+        _LOGGER.info(
+            "Odometer processing stats: Storage Read Entries=%d, Odometer History Read=%d, Storage Write Entries=%d, Total daily entries=%d",
+            stats_read_storage,
+            stats_read_odometer_history,
+            stats_to_store,
+            stats_daily_entries,
+        )
 
     def calculate_daily(self):
         if len(self.daily_drive) > 0:
@@ -114,7 +153,7 @@ class SLXTripPlanner:
         currently_processed_odo_end: float | None
 
         for odo_time, odo_distance in self.odometer_list:
-            _LOGGER.info("Time %s:Value %.1f", odo_time, odo_distance)
+            #            _LOGGER.info("Time %s:Value %.1f", odo_time, odo_distance)
             odo_date_current: date = odo_time.date()
 
             # first entry
