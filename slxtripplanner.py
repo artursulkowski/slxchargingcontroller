@@ -41,7 +41,7 @@ class SLXTripPlanner:
         self.odometer_list: list[datetime, float] = []
         self.daily_drive: list[date, float] = []
         self.ha_config_path = hass.config.config_dir
-        _LOGGER.warning("HA Path:  %s", self.ha_config_path)
+        _LOGGER.info("HA Path:  %s", self.ha_config_path)
 
     async def initialize(self, odometer_entity: str):
         self.odometer_entity = odometer_entity
@@ -55,12 +55,18 @@ class SLXTripPlanner:
         start_time = end_time - timedelta(days=daysback)
 
         events = await self.hass.async_add_executor_job(
-            history.state_changes_during_period,
+            history.get_significant_states,
             self.hass,
             start_time,
             end_time,
-            self.odometer_entity,
+            [self.odometer_entity],
+            None,
+            True,
+            True,
         )
+
+        if self.odometer_entity not in events.keys():
+            return temp_list
 
         for event in events[self.odometer_entity]:
             try:
