@@ -24,7 +24,7 @@ from .fileflag import (
     is_flag_active,
     FLAG_CLEAR_STORAGE,
     FLAG_EXPORT_ODOMETER,
-    FULL_FLAG_DIR,
+    FLAG_DIR,
 )
 import csv
 
@@ -35,23 +35,13 @@ _LOGGER = logging.getLogger(__name__)
 ODOMETER_STORAGE_KEY = "slxintegration_storage"
 
 
-def export_csv_odometer(filename: str, data: list[datetime, float]):
-    with open(FULL_FLAG_DIR + filename, "w", newline="") as csv_file:
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(["Timestamp", "Odometer"])
-        csv_writer.writerows(
-            [
-                (timestamp.strftime("%Y-%m-%d %H:%M:%S"), value)
-                for timestamp, value in data
-            ]
-        )
-
-
 class SLXTripPlanner:
     def __init__(self, hass: HomeAssistant):
         self.hass = hass
         self.odometer_list: list[datetime, float] = []
         self.daily_drive: list[date, float] = []
+        self.ha_config_path = hass.config.config_dir
+        _LOGGER.warning("HA Path:  %s", self.ha_config_path)
 
     async def initialize(self, odometer_entity: str):
         self.odometer_entity = odometer_entity
@@ -116,7 +106,7 @@ class SLXTripPlanner:
         return False
 
     async def capture_odometer(self):
-        if is_flag_active(FLAG_CLEAR_STORAGE):
+        if is_flag_active(self.ha_config_path, FLAG_CLEAR_STORAGE):
             _LOGGER.info("Detected flag for clearing the storage")
             await self.clear_storage()
         else:
@@ -161,10 +151,10 @@ class SLXTripPlanner:
             stats_daily_entries,
         )
 
-        if is_flag_active(FLAG_EXPORT_ODOMETER):
+        if is_flag_active(self.ha_config_path, FLAG_EXPORT_ODOMETER):
             current_time = dt_util.now()
             filename = f"odometer_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
-            export_csv_odometer(filename, self.odometer_list)
+            self.export_csv_odometer(filename, self.odometer_list)
 
     def calculate_daily(self):
         if len(self.daily_drive) > 0:
@@ -215,3 +205,15 @@ class SLXTripPlanner:
                 currently_processed_odo_start = currently_processed_odo_end
                 currently_processed_odo_end = odo_distance
         # TODO - summarize last and not finished day!
+
+    def export_csv_odometer(self, filename: str, data: list[datetime, float]):
+        csv_full_filename = self.ha_config_path + "/" + FLAG_DIR + filename
+        with open(csv_full_filename, "w", newline="") as csv_file:
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(["Timestamp", "Odometer"])
+            csv_writer.writerows(
+                [
+                    (timestamp.strftime("%Y-%m-%d %H:%M:%S"), value)
+                    for timestamp, value in data
+                ]
+            )
