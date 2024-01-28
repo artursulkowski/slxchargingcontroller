@@ -20,13 +20,31 @@ from homeassistant.helpers import storage
 import homeassistant.util.dt as dt_util
 
 from .const import ODOMETER_DAYS_BACK
-from .fileflag import is_flag_active, FLAG_CLEAR_STORAGE
+from .fileflag import (
+    is_flag_active,
+    FLAG_CLEAR_STORAGE,
+    FLAG_EXPORT_ODOMETER,
+    FULL_FLAG_DIR,
+)
+import csv
 
 
 _LOGGER = logging.getLogger(__name__)
 
 
 ODOMETER_STORAGE_KEY = "slxintegration_storage"
+
+
+def export_csv_odometer(filename: str, data: list[datetime, float]):
+    with open(FULL_FLAG_DIR + filename, "w", newline="") as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(["Timestamp", "Odometer"])
+        csv_writer.writerows(
+            [
+                (timestamp.strftime("%Y-%m-%d %H:%M:%S"), value)
+                for timestamp, value in data
+            ]
+        )
 
 
 class SLXTripPlanner:
@@ -142,6 +160,11 @@ class SLXTripPlanner:
             stats_to_store,
             stats_daily_entries,
         )
+
+        if is_flag_active(FLAG_EXPORT_ODOMETER):
+            current_time = dt_util.now()
+            filename = f"odometer_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+            export_csv_odometer(filename, self.odometer_list)
 
     def calculate_daily(self):
         if len(self.daily_drive) > 0:

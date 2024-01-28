@@ -14,6 +14,7 @@ FLAG_PREFIX_ONCE = "flagonce_"
 
 # flags to be used:
 FLAG_CLEAR_STORAGE = "clear_storage"
+FLAG_EXPORT_ODOMETER = "export_odometer"
 
 _LOGGER = logging.getLogger(__name__)
 
