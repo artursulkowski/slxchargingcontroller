@@ -37,6 +37,10 @@ class SLXKiaHyundai(SLXCar):
         "soclastupdate": "sensor.{devicename}_last_updated_at",
     }
 
+    NAME_TRANSLATED_ENTITIES = {
+        "odometer": "sensor.{devicename}_odometer",
+    }
+
     @staticmethod
     def get_domain() -> str:
         return SLXKiaHyundai.DOMAIN_NAME
@@ -106,3 +110,9 @@ class SLXKiaHyundai(SLXCar):
             )
             return True
         return False
+
+    def odometer_entity(self) -> str | None:
+        entity_name = SLXCar._traslate_entity_name(
+            SLXKiaHyundai.NAME_TRANSLATED_ENTITIES["odometer"], self.slugified_name
+        )
+        return entity_name
