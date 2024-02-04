@@ -30,6 +30,7 @@ from .fileflag import (
     is_flag_active,
     FLAG_CLEAR_STORAGE,
     FLAG_EXPORT_ODOMETER,
+    FLAG_EXPORT_DAILY,
     FLAG_DIR,
 )
 import csv
@@ -181,7 +182,7 @@ class SLXTripPlanner:
             return
         if len(list_one) == 0:
             # TODO - will I need a hard copy if it? Probably now but be aware that it might be tricky.
-            list_one = list_two
+            list_one[:] = list_two
             return
 
         last_entry_dt = list_one[-1][0]
@@ -205,7 +206,7 @@ class SLXTripPlanner:
             read_storage_finish = self.odometer_list[-1][0]
 
         # TODO move it
-        MAX_DAYS_BACK = 180
+        MAX_DAYS_BACK = 300
 
         ## now approach to capture any new odometer entries from statistics
         time_now = dt_util.as_utc(dt_util.now())
@@ -258,6 +259,9 @@ class SLXTripPlanner:
 
         if is_flag_active(self.ha_config_path, FLAG_EXPORT_ODOMETER):
             self.__export_csv_odometer(self.odometer_list)
+
+        if is_flag_active(self.ha_config_path, FLAG_EXPORT_DAILY):
+            self.__export_csv_daily_odometer(self.daily_drive)
 
     def _calculate_daily(self):
         if len(self.daily_drive) > 0:
@@ -322,4 +326,16 @@ class SLXTripPlanner:
                     (timestamp.strftime("%Y-%m-%d %H:%M:%S"), value)
                     for timestamp, value in data
                 ]
+            )
+
+    def __export_csv_daily_odometer(self, data: list[date, float]):
+        current_time = dt_util.now()
+        filename = f"daily_{current_time.strftime('%Y%m%d_%H%M%S')}.csv"
+
+        csv_full_filename = self.ha_config_path + "/" + FLAG_DIR + filename
+        with open(csv_full_filename, "w", newline="") as csv_file:
+            csv_writer = csv.writer(csv_file)
+            csv_writer.writerow(["Date", "Daily Trips"])
+            csv_writer.writerows(
+                [(timestamp.strftime("%Y-%m-%d"), value) for timestamp, value in data]
             )
