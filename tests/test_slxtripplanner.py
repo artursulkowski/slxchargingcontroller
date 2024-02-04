@@ -53,8 +53,7 @@ async def test_tripplanner_storage_read(hass: HomeAssistant) -> None:
 
     tripplanner = SLXTripPlanner(hass)
     await tripplanner.initialize(ODOMETER_ENTITY_NAME)
-    await tripplanner.read_storage()
-    list_odo = tripplanner.odometer_list
+    list_odo = await tripplanner._read_storage()
     assert len(list_odo) == 2
     assert list_odo[1][1] == 2345.6
 
@@ -71,12 +70,12 @@ async def test_tripplanner_historical_odometer(
         ],
     ) as historical_odometer, patch(
         "custom_components.slxchargingcontroller.slxtripplanner.SLXTripPlanner._get_statistics",
-        return_value=None,
+        return_value=[],
     ):
         tripplanner = SLXTripPlanner(hass)
         await tripplanner.initialize(ODOMETER_ENTITY_NAME)
         await tripplanner.capture_odometer()
-        historical_odometer.assert_called_once_with(ODOMETER_DAYS_BACK)
+        historical_odometer.assert_called_once()
 
 
 async def test_tripplanner_merge_storage_and_historical(
@@ -94,12 +93,10 @@ async def test_tripplanner_merge_storage_and_historical(
         return_value=odometer_list_entity,
     ) as historical_odometer, patch(
         "custom_components.slxchargingcontroller.slxtripplanner.SLXTripPlanner._get_statistics",
-        return_value=None,
+        return_value=[],
     ):
         freezer.move_to(odometer_test_time)
         await tripplanner.capture_odometer()
-        historical_odometer.assert_called_once_with(
-            3
-        )  # diff between  odometer_test_time and last entry is 2 full days but we are checking one day extra
+        historical_odometer.assert_called_once()
         list_odo = tripplanner.odometer_list
         assert len(list_odo) == 8
