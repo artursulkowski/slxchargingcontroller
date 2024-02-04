@@ -98,11 +98,12 @@ class SLXTripPlanner:
         for stats_entry in stats_list:
             timestamp_str = stats_entry.get("start", None)
             odometer_str = stats_entry.get("state", None)
+            odometer_value = None
             if odometer_str is not None:
                 try:
                     odometer_value = float(odometer_str)
                 except ValueError:
-                    odometer_value = None
+                    pass
             if timestamp_str is not None and odometer_value is not None:
                 tmp_list.append(
                     (dt_util.utc_from_timestamp(timestamp_str), odometer_value)
@@ -181,7 +182,6 @@ class SLXTripPlanner:
             # nothing to do
             return
         if len(list_one) == 0:
-            # TODO - will I need a hard copy if it? Probably now but be aware that it might be tricky.
             list_one[:] = list_two
             return
 
