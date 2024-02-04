@@ -69,7 +69,10 @@ async def test_tripplanner_historical_odometer(
             (datetime.fromisoformat("2024-01-18 19:54:41.482455+00:00"), 2345.6),
             (datetime.fromisoformat("2024-01-19 21:54:41.482455+00:00"), 2445.6),
         ],
-    ) as historical_odometer:
+    ) as historical_odometer, patch(
+        "custom_components.slxchargingcontroller.slxtripplanner.SLXTripPlanner._get_statistics",
+        return_value=None,
+    ):
         tripplanner = SLXTripPlanner(hass)
         await tripplanner.initialize(ODOMETER_ENTITY_NAME)
         await tripplanner.capture_odometer()
@@ -89,7 +92,10 @@ async def test_tripplanner_merge_storage_and_historical(
     with patch(
         "custom_components.slxchargingcontroller.slxtripplanner.SLXTripPlanner._get_historical_odometer",
         return_value=odometer_list_entity,
-    ) as historical_odometer:
+    ) as historical_odometer, patch(
+        "custom_components.slxchargingcontroller.slxtripplanner.SLXTripPlanner._get_statistics",
+        return_value=None,
+    ):
         freezer.move_to(odometer_test_time)
         await tripplanner.capture_odometer()
         historical_odometer.assert_called_once_with(

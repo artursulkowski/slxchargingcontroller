@@ -13,7 +13,12 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, Event
 
+from homeassistant.const import UnitOfLength
+
+# from homeassistant.components import recorder
+from homeassistant.components.recorder import statistics
 from homeassistant.components.recorder import history
+from homeassistant.components.recorder import Recorder
 
 
 from homeassistant.helpers import storage
@@ -45,6 +50,46 @@ class SLXTripPlanner:
 
     async def initialize(self, odometer_entity: str):
         self.odometer_entity = odometer_entity
+
+    async def _get_statistics(self, daysback: int):
+        end_time = dt_util.utcnow()
+        start_time = end_time - timedelta(days=daysback)
+        # Fetch energy + CO2 statistics
+        statistic_list = await self.hass.async_add_executor_job(
+            statistics.statistics_during_period,
+            self.hass,
+            start_time,
+            end_time,
+            [self.odometer_entity],
+            "hour",
+            {"distance": UnitOfLength.KILOMETERS},
+            {"state"},
+        )
+
+        odometer_list = statistic_list.get(self.odometer_entity, None)
+        if odometer_list is None:
+            _LOGGER.info(
+                "No long-term statistics for statistic_id = %s", self.odometer_entity
+            )
+        found_stat_entries = len(odometer_list)
+        first_entry_timestamp = odometer_list[0].get("start", None)
+        if first_entry_timestamp is None:
+            first_entry_date = "N/A"
+        else:
+            first_entry_date = dt_util.utc_from_timestamp(first_entry_timestamp)
+        last_entry_timestamp = odometer_list[-1].get("start", None)
+        if last_entry_timestamp is None:
+            last_entry_date = "N/A"
+        else:
+            last_entry_date = dt_util.utc_from_timestamp(last_entry_timestamp)
+
+        _LOGGER.warning(
+            "Captured stats for %s: Entries: %d, start: %s, end: %s",
+            self.odometer_entity,
+            found_stat_entries,
+            first_entry_date,
+            last_entry_date,
+        )
 
     # I will move capturing of data from recorder here so I can mock it easily in tests without the need to real with the recorder.
     # Other function should play more with extending storage using odometer data.
@@ -136,6 +181,7 @@ class SLXTripPlanner:
                 max_days_back = num_days
 
         _LOGGER.info("Capture odometer history from %d days", max_days_back)
+        await self._get_statistics(60)
         odometer_list = await self._get_historical_odometer(max_days_back)
         stats_read_odometer_history: int = len(odometer_list)
 
