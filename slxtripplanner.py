@@ -2,39 +2,30 @@
 
 from __future__ import annotations
 
-from datetime import timedelta, datetime, date
-
-import logging
 import asyncio
-import os
 import bisect
-
+import contextlib
+import csv
+from datetime import date, datetime, timedelta
+import logging
+import os
 from typing import Any
 
-
-from homeassistant.core import HomeAssistant, Event
-
+from homeassistant.components.recorder import history, statistics
 from homeassistant.const import UnitOfLength
-
-# from homeassistant.components import recorder
-from homeassistant.components.recorder import statistics
-from homeassistant.components.recorder import history
-from homeassistant.components.recorder import Recorder
-
-
+from homeassistant.core import Callable, Event, HomeAssistant
 from homeassistant.helpers import storage
+from homeassistant.helpers.event import async_track_state_change_event
 import homeassistant.util.dt as dt_util
 
 from .const import ODOMETER_DAYS_BACK
 from .fileflag import (
-    is_flag_active,
     FLAG_CLEAR_STORAGE,
-    FLAG_EXPORT_ODOMETER,
-    FLAG_EXPORT_DAILY,
     FLAG_DIR,
+    FLAG_EXPORT_DAILY,
+    FLAG_EXPORT_ODOMETER,
+    is_flag_active,
 )
-import csv
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,15 +34,42 @@ ODOMETER_STORAGE_KEY = "slxintegration_storage"
 
 
 class SLXTripPlanner:
-    def __init__(self, hass: HomeAssistant):
+    """Process odometer and estimate future trips."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Create empty planner object.
+
+        Does not run any data processing.
+        """
         self.hass = hass
+        self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
         self.odometer_list: list[datetime, float] = []
         self.daily_drive: list[date, float] = []
         self.ha_config_path = hass.config.config_dir
+        self.odometer_entity = None
         _LOGGER.info("HA Path:  %s", self.ha_config_path)
 
     async def initialize(self, odometer_entity: str):
+        """Initialize processing of odometer input and subscribes for its changes."""
         self.odometer_entity = odometer_entity
+
+        # Run odometer analysis?
+        # TODO - subscribe odometer entity changes
+        self._subscribe_entity(odometer_entity, self._callback_soc_level)
+
+    async def disconnect(self) -> bool:
+        """Use for tear down of the object."""
+        for entity_name, cancel in self.unsub_dict.items():
+            _LOGGER.debug("Unsubscribing entity %s", entity_name)
+            cancel()
+
+    async def _callback_soc_level(self, event: Event) -> None:
+        _LOGGER.debug("Called odometer callback")
+        value = None
+        with contextlib.suppress(ValueError):
+            value = float(event.data["new_state"].state)
+        if value is not None:
+            _LOGGER.debug("Odometer value = %d", value)
 
     async def _get_statistics(
         self, start_time: datetime, end_time: datetime
@@ -100,10 +118,8 @@ class SLXTripPlanner:
             odometer_str = stats_entry.get("state", None)
             odometer_value = None
             if odometer_str is not None:
-                try:
+                with contextlib.suppress(ValueError):
                     odometer_value = float(odometer_str)
-                except ValueError:
-                    pass
             if timestamp_str is not None and odometer_value is not None:
                 tmp_list.append(
                     (dt_util.utc_from_timestamp(timestamp_str), odometer_value)
@@ -133,10 +149,9 @@ class SLXTripPlanner:
             return temp_list
 
         for event in events[self.odometer_entity]:
-            try:
+            value_odometer = None
+            with contextlib.suppress(ValueError):
                 value_odometer = float(event.state)
-            except ValueError:
-                value_odometer = None
             if value_odometer is not None and event.last_changed is not None:
                 temp_list.append((event.last_changed, value_odometer))
         return temp_list
@@ -190,12 +205,14 @@ class SLXTripPlanner:
         list_one.extend(list_two[index:])
 
     async def capture_odometer(self):
-        ## this function is correct at first run as it is going through all possible sources of information.
-        ## clearing or reading the storage
+        """Run it at startup of HA. It is combining all possible sources of odometer information."""
+
+        ## Flag! Clearing or reading the storage
         if is_flag_active(self.ha_config_path, FLAG_CLEAR_STORAGE):
             _LOGGER.info("Detected flag for clearing the storage")
             await self._clear_storage()
         else:
+            ## STAGE 1 - read the storage
             self.odometer_list = await self._read_storage()
         read_storage_size: int = len(self.odometer_list)
         read_storage_start: datetime | None = None
@@ -205,13 +222,11 @@ class SLXTripPlanner:
             read_storage_start = self.odometer_list[0][0]
             read_storage_finish = self.odometer_list[-1][0]
 
-        # TODO move it
-        MAX_DAYS_BACK = 300
-
-        ## now approach to capture any new odometer entries from statistics
+        # STAGE 2 - read from statistics and add it to read entries.
+        # now approach to capture any new odometer entries from statistics
         time_now = dt_util.as_utc(dt_util.now())
         time_start_statistics = (
-            (time_now - timedelta(days=MAX_DAYS_BACK))
+            time_now - timedelta(days=ODOMETER_DAYS_BACK)
             if read_storage_finish is None
             else read_storage_finish
         )
@@ -221,18 +236,19 @@ class SLXTripPlanner:
 
         self.__append_odometer_list(self.odometer_list, odometer_from_stats)
 
-        # re-check last entry
+        # Check last entry
         odometer_last_time: datetime | None = (
             self.odometer_list[-1][0] if len(self.odometer_list) > 0 else None
         )
 
+        # STAGE 3- read from entity history
         stats_read_odometer_history = 0
         if odometer_last_time is None or odometer_last_time < time_now - timedelta(
             hours=6
         ):
             # we check entitiy history only if from statistics we didn't manage to get older than 6 hours
             time_start_odometer = (
-                time_now - timedelta(days=MAX_DAYS_BACK)
+                time_now - timedelta(days=ODOMETER_DAYS_BACK)
                 if odometer_last_time is None
                 else odometer_last_time
             )
@@ -242,11 +258,13 @@ class SLXTripPlanner:
             stats_read_odometer_history = len(odometer_list_history)
             self.__append_odometer_list(self.odometer_list, odometer_list_history)
 
+        # STAGE 4 - checks if we need to store some new entries
         # TO CHECK IF WE NEED TO STORE SOMETHING ?!
         stats_to_store: int = len(self.odometer_list)
         if stats_to_store > read_storage_size:
             await self._write_storage(self.odometer_list)
 
+        # STAGE 5 - calculate daily
         self._calculate_daily()
         stats_daily_entries = len(self.daily_drive)
         _LOGGER.info(
@@ -257,6 +275,7 @@ class SLXTripPlanner:
             stats_daily_entries,
         )
 
+        # Flag - exporting data
         if is_flag_active(self.ha_config_path, FLAG_EXPORT_ODOMETER):
             self.__export_csv_odometer(self.odometer_list)
 
@@ -339,3 +358,10 @@ class SLXTripPlanner:
             csv_writer.writerows(
                 [(timestamp.strftime("%Y-%m-%d"), value) for timestamp, value in data]
             )
+
+    def _subscribe_entity(
+        self, entity_name: str, external_calback: Callable[[Event], Any]
+    ) -> None:
+        self.unsub_dict[entity_name] = async_track_state_change_event(
+            self.hass, entity_name, external_calback
+        )
