@@ -192,17 +192,21 @@ class SLXTripPlanner:
 
     def __append_odometer_list(
         self, list_one: list[datetime, float], list_two: list[datetime, float]
-    ):
-        if len(list_two) == 0:
+    ) -> int:
+        """Appends two lists of odometrs, returns number of items added"""
+        len_list_one = len(list_one)
+        if len_list_one == 0:
             # nothing to do
-            return
+            return 0
         if len(list_one) == 0:
             list_one[:] = list_two
-            return
+            return len(list_two)
 
         last_entry_dt = list_one[-1][0]
         index = bisect.bisect_right(list_two, (last_entry_dt,))
         list_one.extend(list_two[index:])
+        added_items = len(list_one) - len_list_one
+        return added_items
 
     async def capture_odometer(self):
         """Run it at startup of HA. It is combining all possible sources of odometer information."""
@@ -281,6 +285,95 @@ class SLXTripPlanner:
 
         if is_flag_active(self.ha_config_path, FLAG_EXPORT_DAILY):
             self.__export_csv_daily_odometer(self.daily_drive)
+
+    async def _update_odometer(self):
+        """Read odometer entity and add if there are new entires."""
+        # Check last entry
+        odometer_last_time: datetime | None = (
+            self.odometer_list[-1][0] if len(self.odometer_list) > 0 else None
+        )
+        if odometer_last_time is None:
+            _LOGGER.warning(
+                "We tried to update odometer but odometer_list is empty. We are ignoring such edge case"
+            )
+            return None
+        odometer_last_length = len(self.odometer_list)
+        time_now = dt_util.as_utc(dt_util.now())
+        odometer_list_history = await self._get_historical_odometer(
+            odometer_last_time, time_now
+        )
+        added_items = self.__append_odometer_list(
+            self.odometer_list, odometer_list_history
+        )
+
+        if added_items == 0:
+            return None
+
+        # ok we have sth to process
+        # Step 1 - recalculate daily (but not the full one!)
+        ##TODO -  those algorithms of partial update are getting complex. What could be an alternative solution
+        #
+
+        # Step 2
+
+    def _calculate_daily_incremental(self, previous_odometer_length: int):
+        """Update partially daily entires.
+
+        We assume that daily_drive is already calculated.
+        Simplified algorithm:
+        - last_previous_odometer - it's previous_odometer_length-1
+        - We are not touching daily drives for THE DAY before last_previous_odometer.
+        - For processing odometer entries we need to go to the last odometer entry a day before
+        """
+
+        # Step1 - identify where do we start processing. Calculate the day we want to process
+        first_day_to_update = self.odometer_list[previous_odometer_length - 1][0].date()
+        first_index_odo = 0
+        for index in range(previous_odometer_length - 2, -1, -1):
+            if self.odometer_list[index][0].date() != first_day_to_update:
+                first_index_odo = index
+                break
+        # Step 2 - calculations!
+        currently_processed_day: date | None = None
+        currently_processed_odo_start: float | None
+        currently_processed_odo_end: float | None
+        for odo_time, odo_distance in self.odometer_list[first_index_odo:]:
+            #            _LOGGER.info("Time %s:Value %.1f", odo_time, odo_distance)
+            odo_date_current: date = odo_time.date()
+            # first entry
+            if currently_processed_day is None:
+                currently_processed_day = odo_date_current
+                currently_processed_odo_start = odo_distance
+
+            # we are still in the same day
+            if currently_processed_day == odo_date_current:
+                currently_processed_odo_end = odo_distance
+
+            # we started processing new day!
+            if odo_date_current > currently_processed_day:
+                # summarize previously processed days!
+
+                days_diff = (odo_date_current - currently_processed_day).days
+                if days_diff < 2:
+                    to_store = (
+                        currently_processed_day,
+                        currently_processed_odo_end - currently_processed_odo_start,
+                    )
+                    if to_store[0] >= first_day_to_update:
+                        self.daily_drive
+                    self.daily_drive.append(to_store)
+                else:
+                    distance_per_day = (
+                        currently_processed_odo_end - currently_processed_odo_start
+                    ) / days_diff
+                    for n in range(days_diff):
+                        to_store = (
+                            currently_processed_day + timedelta(days=n),
+                            distance_per_day,
+                        )
+                        ##
+                        ##self.daily_drive.append(to_store)
+                        ## Storing must be modified!
 
     def _calculate_daily(self):
         if len(self.daily_drive) > 0:
