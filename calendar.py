@@ -81,15 +81,15 @@ class SLXCalendarEntity(CalendarEntity):
     ) -> list[CalendarEvent]:
         """Get all events in a specific time frame."""
         tmp_list = []
-        daystart = start_date.date()
-        dayfinish = end_date.date()
 
-        daily_trips = self._tripplanner.daily_drive
+        daily_trips = self._tripplanner.get_daily_trips(
+            start_date.date(), end_date.date()
+        )
+
         for trip_date, distance in daily_trips:
-            if trip_date >= daystart and trip_date <= dayfinish:
-                summary = f"Trip: {distance:.1f}km"
-                information_object = {"dailytrip": distance}
-                description = json.dumps(information_object)
-                ce = CalendarEvent(trip_date, trip_date, summary, description)
-                tmp_list.append(ce)
+            summary = f"Trip: {distance:.1f}km"
+            information_object = {"dailytrip": distance}
+            description = json.dumps(information_object)
+            ce = CalendarEvent(trip_date, trip_date, summary, description)
+            tmp_list.append(ce)
         return tmp_list

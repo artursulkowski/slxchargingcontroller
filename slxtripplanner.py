@@ -290,7 +290,7 @@ class SLXTripPlanner:
             self.__export_csv_odometer(self.odometer_list)
 
         if is_flag_active(self.ha_config_path, FLAG_EXPORT_DAILY):
-            daily_trips = self._get_daily_trips(None, None)
+            daily_trips = self.get_daily_trips(None, None)
             if len(daily_trips) > 0:
                 self.__export_csv_daily_odometer(daily_trips)
 
@@ -344,7 +344,7 @@ class SLXTripPlanner:
         ][1]
         return odometer_current_day - odometer_previous_day
 
-    def _get_daily_trips(
+    def get_daily_trips(
         self, start_date: date | None, end_date: date | None
     ) -> list[(date, float)]:
         """Calculate daily distances for each dates in the range.

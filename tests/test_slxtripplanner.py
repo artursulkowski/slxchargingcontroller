@@ -296,7 +296,7 @@ def test_get_daily_drives(hass: HomeAssistant):
     tripplanner = SLXTripPlanner(hass)
     tripplanner.odometer_list = odometer_list_storage_test_merging
     tripplanner._recalculate_odometer_index()
-    daily_drives = tripplanner._get_daily_trips(None, None)
+    daily_drives = tripplanner.get_daily_trips(None, None)
     compare_daily_trips(odometer_test_merging_daily_trips1, daily_drives)
 
 
@@ -304,7 +304,7 @@ def test_get_daily_drives2(hass: HomeAssistant):
     tripplanner = SLXTripPlanner(hass)
     tripplanner.odometer_list = odometer_list_storage_test_merging
     tripplanner._recalculate_odometer_index()
-    daily_drives = tripplanner._get_daily_trips(date.fromisoformat("2024-01-19"), None)
+    daily_drives = tripplanner.get_daily_trips(date.fromisoformat("2024-01-19"), None)
     compare_daily_trips(odometer_test_merging_daily_trips1[1:], daily_drives)
 
 
@@ -312,7 +312,7 @@ def test_get_daily_drives3(hass: HomeAssistant):
     tripplanner = SLXTripPlanner(hass)
     tripplanner.odometer_list = odometer_list_storage_test_merging
     tripplanner._recalculate_odometer_index()
-    daily_drives = tripplanner._get_daily_trips(date.fromisoformat("2024-01-25"), None)
+    daily_drives = tripplanner.get_daily_trips(date.fromisoformat("2024-01-25"), None)
     compare_daily_trips(odometer_test_merging_daily_trips1[7:], daily_drives)
 
 
@@ -320,5 +320,5 @@ def test_get_daily_drives4(hass: HomeAssistant):
     tripplanner = SLXTripPlanner(hass)
     tripplanner.odometer_list = odometer_list_storage_test_merging
     tripplanner._recalculate_odometer_index()
-    daily_drives = tripplanner._get_daily_trips(None, date.fromisoformat("2024-01-25"))
+    daily_drives = tripplanner.get_daily_trips(None, date.fromisoformat("2024-01-25"))
     compare_daily_trips(odometer_test_merging_daily_trips1[:8], daily_drives)
