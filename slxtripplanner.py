@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import bisect
+from collections import OrderedDict
 import contextlib
 import csv
 from datetime import date, datetime, timedelta
 import logging
-import os
 from typing import Any
 
 from homeassistant.components.recorder import history, statistics
@@ -44,7 +43,11 @@ class SLXTripPlanner:
         self.hass = hass
         self.unsub_dict: dict[str, Callable[[Event], Any]] = {}
         self.odometer_list: list[datetime, float] = []
-        self.daily_drive: list[date, float] = []
+        self.odometer_index: OrderedDict[date, int] = {}
+        self.daily_histogram: list[list[float]] = []
+        for weekday in range(7):
+            self.daily_histogram.append(list())
+        self.daily_histogram_last_date: date | None = None
         self.ha_config_path = hass.config.config_dir
         self.odometer_entity = None
         _LOGGER.info("HA Path:  %s", self.ha_config_path)
@@ -53,9 +56,8 @@ class SLXTripPlanner:
         """Initialize processing of odometer input and subscribes for its changes."""
         self.odometer_entity = odometer_entity
 
-        # Run odometer analysis?
-        # TODO - subscribe odometer entity changes
-        self._subscribe_entity(odometer_entity, self._callback_soc_level)
+        await self.startup_capture_odometer()
+        self._subscribe_entity(odometer_entity, self._callback_odometer_value)
 
     async def disconnect(self) -> bool:
         """Use for tear down of the object."""
@@ -63,13 +65,19 @@ class SLXTripPlanner:
             _LOGGER.debug("Unsubscribing entity %s", entity_name)
             cancel()
 
-    async def _callback_soc_level(self, event: Event) -> None:
+    async def _callback_odometer_value(self, event: Event) -> None:
         _LOGGER.debug("Called odometer callback")
         value = None
         with contextlib.suppress(ValueError):
             value = float(event.data["new_state"].state)
         if value is not None:
             _LOGGER.debug("Odometer value = %d", value)
+            when_event = event.time_fired
+            # TODO - to be tested if appended value and the one read from history have same datetime.
+            self.odometer_list.append((when_event, value))
+            self._recalculate_odometer_index()
+            self._update_daily_histogram()
+            # TODO calculate predictions ( if daily histogram has added a new day)
 
     async def _get_statistics(
         self, start_time: datetime, end_time: datetime
@@ -156,6 +164,8 @@ class SLXTripPlanner:
                 temp_list.append((event.last_changed, value_odometer))
         return temp_list
 
+    ## storage operations
+
     async def _clear_storage(self):
         store = storage.Store(self.hass, 1, ODOMETER_STORAGE_KEY)
         await store.async_remove()
@@ -190,7 +200,9 @@ class SLXTripPlanner:
             return True
         return False
 
-    def __append_odometer_list(
+    ## helper methods
+
+    def _append_odometer_list(
         self, list_one: list[datetime, float], list_two: list[datetime, float]
     ) -> int:
         """Appends two lists of odometrs, returns number of items added"""
@@ -203,12 +215,13 @@ class SLXTripPlanner:
             return len(list_two)
 
         last_entry_dt = list_one[-1][0]
-        index = bisect.bisect_right(list_two, (last_entry_dt,))
-        list_one.extend(list_two[index:])
+        last_entry_odometer = list_one[-1][1]
+        index = bisect.bisect(list_two, (last_entry_dt, last_entry_odometer))
+        list_one.extend(list_two[(index):])
         added_items = len(list_one) - len_list_one
         return added_items
 
-    async def capture_odometer(self):
+    async def startup_capture_odometer(self):
         """Run it at startup of HA. It is combining all possible sources of odometer information."""
 
         ## Flag! Clearing or reading the storage
@@ -238,7 +251,7 @@ class SLXTripPlanner:
             time_start_statistics, time_now
         )
 
-        self.__append_odometer_list(self.odometer_list, odometer_from_stats)
+        self._append_odometer_list(self.odometer_list, odometer_from_stats)
 
         # Check last entry
         odometer_last_time: datetime | None = (
@@ -260,7 +273,7 @@ class SLXTripPlanner:
                 time_start_odometer, time_now
             )
             stats_read_odometer_history = len(odometer_list_history)
-            self.__append_odometer_list(self.odometer_list, odometer_list_history)
+            self._append_odometer_list(self.odometer_list, odometer_list_history)
 
         # STAGE 4 - checks if we need to store some new entries
         # TO CHECK IF WE NEED TO STORE SOMETHING ?!
@@ -268,23 +281,18 @@ class SLXTripPlanner:
         if stats_to_store > read_storage_size:
             await self._write_storage(self.odometer_list)
 
-        # STAGE 5 - calculate daily
-        self._calculate_daily()
-        stats_daily_entries = len(self.daily_drive)
-        _LOGGER.info(
-            "Odometer processing stats: Storage Read Entries=%d, Odometer History Read=%d, Storage Write Entries=%d, Total daily entries=%d",
-            read_storage_size,
-            stats_read_odometer_history,
-            stats_to_store,
-            stats_daily_entries,
-        )
+        # STAGE 5 - update histogram daily
+        self._recalculate_odometer_index()
+        self._update_daily_histogram()
 
         # Flag - exporting data
         if is_flag_active(self.ha_config_path, FLAG_EXPORT_ODOMETER):
             self.__export_csv_odometer(self.odometer_list)
 
         if is_flag_active(self.ha_config_path, FLAG_EXPORT_DAILY):
-            self.__export_csv_daily_odometer(self.daily_drive)
+            daily_trips = self._get_daily_trips(None, None)
+            if len(daily_trips) > 0:
+                self.__export_csv_daily_odometer(daily_trips)
 
     async def _update_odometer(self):
         """Read odometer entity and add if there are new entires."""
@@ -297,133 +305,143 @@ class SLXTripPlanner:
                 "We tried to update odometer but odometer_list is empty. We are ignoring such edge case"
             )
             return None
-        odometer_last_length = len(self.odometer_list)
         time_now = dt_util.as_utc(dt_util.now())
         odometer_list_history = await self._get_historical_odometer(
             odometer_last_time, time_now
         )
-        added_items = self.__append_odometer_list(
-            self.odometer_list, odometer_list_history
-        )
+        self._append_odometer_list(self.odometer_list, odometer_list_history)
 
-        if added_items == 0:
-            return None
+    def _recalculate_odometer_index(self):
+        keys = list(self.odometer_index.keys())
 
-        # ok we have sth to process
-        # Step 1 - recalculate daily (but not the full one!)
-        ##TODO -  those algorithms of partial update are getting complex. What could be an alternative solution
-        #
+        first_new_index_value = 0
+        if keys:
+            # list is not empty
+            first_new_index_value = self.odometer_index[keys[-1]] + 1
+        # lets start processing..
 
-        # Step 2
+        odometer_entries_for_processing = self.odometer_list[first_new_index_value:]
+        for index, (odo_datetime, _) in enumerate(
+            odometer_entries_for_processing, first_new_index_value
+        ):
+            odo_date = odo_datetime.date()
+            self.odometer_index[odo_date] = index
 
-    def _calculate_daily_incremental(self, previous_odometer_length: int):
-        """Update partially daily entires.
+    def _get_day_distance_driven(self, day_to_calculate: date) -> float:
+        # it is quite inefficient. Don't use it to calculate some group statistics for a longer periods.
+        if day_to_calculate not in self.odometer_index:
+            return 0
+        keys = list(self.odometer_index.keys())
+        position_in_index_list = keys.index(day_to_calculate)
+        if position_in_index_list == 0:
+            # it's a first day - we can only calculate refering to previous one!
+            return 0
+        odometer_current_day = self.odometer_list[
+            self.odometer_index[day_to_calculate]
+        ][1]
+        odometer_previous_day = self.odometer_list[
+            self.odometer_index[keys[position_in_index_list - 1]]
+        ][1]
+        return odometer_current_day - odometer_previous_day
 
-        We assume that daily_drive is already calculated.
-        Simplified algorithm:
-        - last_previous_odometer - it's previous_odometer_length-1
-        - We are not touching daily drives for THE DAY before last_previous_odometer.
-        - For processing odometer entries we need to go to the last odometer entry a day before
+    def _get_daily_trips(
+        self, start_date: date | None, end_date: date | None
+    ) -> list[(date, float)]:
+        """Calculate daily distances for each dates in the range.
+
+        In case when start_date is None - take first possible date for which we can calculate distance driven
+        In case when end_date is None - take the last possible date for which we can calculate distance driven
+        In case when we cannot calculate the distance since start_date (or till end_date) - we are not filling in the list with those dates.
+
+        Assumptions: odometer_index is updated.
         """
+        index_keys = list(self.odometer_index.keys())
+        if len(index_keys) < 2:
+            # for sure we won't be able to calculate any day!
+            # return empty list
+            return []
 
-        # Step1 - identify where do we start processing. Calculate the day we want to process
-        first_day_to_update = self.odometer_list[previous_odometer_length - 1][0].date()
-        first_index_odo = 0
-        for index in range(previous_odometer_length - 2, -1, -1):
-            if self.odometer_list[index][0].date() != first_day_to_update:
-                first_index_odo = index
-                break
-        # Step 2 - calculations!
-        currently_processed_day: date | None = None
-        currently_processed_odo_start: float | None
-        currently_processed_odo_end: float | None
-        for odo_time, odo_distance in self.odometer_list[first_index_odo:]:
-            #            _LOGGER.info("Time %s:Value %.1f", odo_time, odo_distance)
-            odo_date_current: date = odo_time.date()
-            # first entry
-            if currently_processed_day is None:
-                currently_processed_day = odo_date_current
-                currently_processed_odo_start = odo_distance
+        first_possible_date: date = index_keys[0]
+        last_possible_date: date = index_keys[-2]
 
-            # we are still in the same day
-            if currently_processed_day == odo_date_current:
-                currently_processed_odo_end = odo_distance
+        # TODO - start date is not the same as first day to process! We need to get one day back in out processing (how to do it?)
+        if start_date is None:
+            first_day_to_process = first_possible_date
+            start_date = first_day_to_process + timedelta(days=1)
+        else:
+            # we need to find a day for processing which is before start_date.
+            index = bisect.bisect_left(index_keys, start_date)
+            if (
+                index > 0
+            ):  # not always mathematically correct but we can just move one index before. In worst case we will process (but ignore) few additional entries.
+                index -= 1
+            first_day_to_process = index_keys[index]
 
-            # we started processing new day!
-            if odo_date_current > currently_processed_day:
-                # summarize previously processed days!
+        if end_date is None:
+            last_day_to_calculate = last_possible_date
+        else:
+            last_day_to_calculate = min(last_possible_date, end_date)
 
-                days_diff = (odo_date_current - currently_processed_day).days
-                if days_diff < 2:
-                    to_store = (
-                        currently_processed_day,
-                        currently_processed_odo_end - currently_processed_odo_start,
-                    )
-                    if to_store[0] >= first_day_to_update:
-                        self.daily_drive
-                    self.daily_drive.append(to_store)
-                else:
-                    distance_per_day = (
-                        currently_processed_odo_end - currently_processed_odo_start
-                    ) / days_diff
-                    for n in range(days_diff):
-                        to_store = (
-                            currently_processed_day + timedelta(days=n),
-                            distance_per_day,
-                        )
-                        ##
-                        ##self.daily_drive.append(to_store)
-                        ## Storing must be modified!
+        temporary_daily: list[(date, float)] = []
+        # TODO - brutal copy-paste from _update_daily_histogram. To refactor - separate algorithm and action taken on data.
 
-    def _calculate_daily(self):
-        if len(self.daily_drive) > 0:
-            _LOGGER.warning("Missing implementation of incremental recalculation")
-            self.daily_drive.clear()
+        previous_odometer = self.odometer_list[
+            self.odometer_index[first_day_to_process]
+        ][1]
+        current_date = first_day_to_process + timedelta(days=1)
+        while current_date <= last_day_to_calculate:
+            # we are iterating day by day , through this loop we can decide if the day is empty or present in odometer index and make relevant calculations.
+            daily_distance: float = 0
+            if current_date in self.odometer_index:
+                current_odometer = self.odometer_list[
+                    self.odometer_index[current_date]
+                ][1]
+                daily_distance = current_odometer - previous_odometer
+                previous_odometer = current_odometer
+            if current_date >= start_date:  # ignore dates before
+                temporary_daily.append((current_date, daily_distance))
 
-        currently_processed_day: date | None = None
-        currently_processed_odo_start: float | None
-        currently_processed_odo_end: float | None
+            # Add histogramic information!
+            current_date += timedelta(days=1)
+        return temporary_daily
 
-        for odo_time, odo_distance in self.odometer_list:
-            #            _LOGGER.info("Time %s:Value %.1f", odo_time, odo_distance)
-            odo_date_current: date = odo_time.date()
+    def _update_daily_histogram(self):
+        # check the last day which we can calculate from odometer index.
+        keys = list(self.odometer_index.keys())
+        if len(keys) < 2:
+            # nothing to do! With only one day indexed we cannot calcuate the day.
+            return
+        last_day_to_calculate = keys[-2]
 
-            # first entry
-            if currently_processed_day is None:
-                currently_processed_day = odo_date_current
-                currently_processed_odo_start = odo_distance
+        if self.daily_histogram_last_date is not None:
+            first_day_to_process = self.daily_histogram_last_date
+        else:
+            first_day_to_process = keys[0]
 
-            # we are still in the same day
-            if currently_processed_day == odo_date_current:
-                currently_processed_odo_end = odo_distance
+        previous_odometer = self.odometer_list[
+            self.odometer_index[first_day_to_process]
+        ][1]
 
-            # we started processing new day!
-            if odo_date_current > currently_processed_day:
-                # summarize previously processed days!
+        temporary_daily: list[date, float] = []
 
-                days_diff = (odo_date_current - currently_processed_day).days
-                if days_diff < 2:
-                    to_store = (
-                        currently_processed_day,
-                        currently_processed_odo_end - currently_processed_odo_start,
-                    )
-                    self.daily_drive.append(to_store)
-                else:
-                    distance_per_day = (
-                        currently_processed_odo_end - currently_processed_odo_start
-                    ) / days_diff
-                    for n in range(days_diff):
-                        to_store = (
-                            currently_processed_day + timedelta(days=n),
-                            distance_per_day,
-                        )
-                        self.daily_drive.append(to_store)
+        current_date = first_day_to_process + timedelta(days=1)
+        while current_date <= last_day_to_calculate:
+            # we are iterating day by day , through this loop we can decide if the day is empty or present in odometer index and make relevant calculations.
+            daily_distance: float = 0
+            if current_date in self.odometer_index:
+                current_odometer = self.odometer_list[
+                    self.odometer_index[current_date]
+                ][1]
+                daily_distance = current_odometer - previous_odometer
+                previous_odometer = current_odometer
+            temporary_daily.append((current_date, daily_distance))
 
-                # switch to a new day
-                currently_processed_day = odo_date_current
-                currently_processed_odo_start = currently_processed_odo_end
-                currently_processed_odo_end = odo_distance
-        # TODO - summarize last and not finished day!
+            # Add histogramic information!
+
+            self.daily_histogram[current_date.weekday()].append(daily_distance)
+            self.daily_histogram_last_date = current_date
+
+            current_date += timedelta(days=1)
 
     def __export_csv_odometer(self, data: list[datetime, float]):
         current_time = dt_util.now()
