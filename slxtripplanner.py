@@ -48,6 +48,10 @@ class SLXTripPlanner:
         for weekday in range(7):
             self.daily_histogram.append(list())
         self.daily_histogram_last_date: date | None = None
+
+        self.predictor_input_last_date: date | None = None
+        self.predictor_output: dict[datetime, list[float]] = {}
+
         self.ha_config_path = hass.config.config_dir
         self.odometer_entity = None
         _LOGGER.info("HA Path:  %s", self.ha_config_path)
@@ -77,6 +81,7 @@ class SLXTripPlanner:
             self.odometer_list.append((when_event, value))
             self._recalculate_odometer_index()
             self._update_daily_histogram()
+            self._run_predictor()
             # TODO calculate predictions ( if daily histogram has added a new day)
 
     async def _get_statistics(
@@ -442,6 +447,69 @@ class SLXTripPlanner:
             self.daily_histogram_last_date = current_date
 
             current_date += timedelta(days=1)
+
+    def _run_predictor(self, prediction_range_days: int = 7) -> float:
+        # self.predictor_input_last_date: date | None = None
+        # self.predictor_output: list[datetime, list[float]] = []
+
+        # check if anything changed in histogram
+        if (
+            self.predictor_input_last_date is not None
+            and self.predictor_input_last_date == self.daily_histogram_last_date
+        ):
+            return  # nothing changed
+        self.predictor_input_last_date = self.daily_histogram_last_date
+        # ok, sth changed, lets run prediction!
+        # We are running prediction for upcoming day plus few days in advance.
+
+        # very simplistic algorithm? Weighten median from last 5 weeks based on a specific weekday
+        # Take not more that last 5 weekly distances.
+        #
+        # Add weights based on how fresh are those disances
+        # (from last till the first), weights 5,4,3,2,1 (total - 15)
+        # use weights as a multiplier on how many times we repeat the distance
+        # take this list, sort it and capture the median.
+        # the median value - round to 10km.
+
+        weights = [5, 4, 3, 3, 3]  # 5,4,3,2,1
+        # start_date = dt_util.now().date()
+        start_date = self.daily_histogram_last_date + timedelta(days=1)
+        end_date = start_date + timedelta(days=prediction_range_days - 1)
+
+        predicted_values: list[date, float] = []
+
+        day_to_predict = start_date
+        while day_to_predict <= end_date:
+            which_weekday: int = day_to_predict.weekday()
+            last_distances = self.daily_histogram[which_weekday][-5:][
+                ::-1
+            ]  # in reversed order
+            if len(last_distances) > 0:
+                distances_weighted = [
+                    dist
+                    for dist, count in zip(last_distances, weights)
+                    for _ in range(count)
+                ]
+                distances_weighted.sort()
+                index_mid: int = round(len(distances_weighted) / 2)
+                predicted_value = distances_weighted[index_mid]
+            else:
+                predicted_value = 50  # any default daily drive?
+            predicted_values.append((day_to_predict, predicted_value))
+            day_to_predict += timedelta(days=1)
+
+        self._merge_predictor_entries(predicted_values)
+        # merge values into predictor_output.
+
+    def _merge_predictor_entries(self, new_prediction: list[date, float]):
+        if len(new_prediction) == 0:  # nothing to do
+            return
+
+        for pred_date, pred_dist in new_prediction:
+            if pred_date in self.predictor_output:
+                self.predictor_output[pred_date].insert(0, pred_dist)
+            else:
+                self.predictor_output[pred_date] = [pred_dist]
 
     def __export_csv_odometer(self, data: list[datetime, float]):
         current_time = dt_util.now()

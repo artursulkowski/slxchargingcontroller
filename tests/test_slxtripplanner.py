@@ -322,3 +322,99 @@ def test_get_daily_drives4(hass: HomeAssistant):
     tripplanner._recalculate_odometer_index()
     daily_drives = tripplanner.get_daily_trips(None, date.fromisoformat("2024-01-25"))
     compare_daily_trips(odometer_test_merging_daily_trips1[:8], daily_drives)
+
+
+def compare_predictor(
+    referenced_predictor: dict[date, list[float]],
+    calculated_predictor: dict[date, list[float]],
+):
+    keys_reference = list(referenced_predictor.keys())
+    keys_calculated = list(calculated_predictor.keys())
+    assert len(keys_reference) == len(keys_calculated)
+    # any inconsistency in keys will appear at checking entries, so I don't need to verify them one by one.
+
+    for date_to_check in keys_reference:
+        list_ref = referenced_predictor[date_to_check]
+        list_calc = calculated_predictor[date_to_check]
+
+        assert len(list_ref) == len(list_calc)
+        for dist_ref, dist_calc in zip(list_ref, list_calc):
+            assert isclose(
+                dist_ref, dist_calc
+            ), f"Comparison failed: {date_to_check}: ref_distance={dist_ref}, calculated_distance={dist_calc}, "
+
+
+predictor_test1_value: dict[date, list[float]] = {
+    date(2024, 1, 30): [360.1],
+    date(2024, 1, 31): [10.1],
+    date(2024, 2, 1): [0],
+    date(2024, 2, 2): [0],
+    date(2024, 2, 3): [21.0],
+    date(2024, 2, 4): [0],
+    date(2024, 2, 5): [20.0],
+}
+
+
+def test_predictor1(hass: HomeAssistant):
+    ## TODO - use artifical histograms to test predictor. It does not make sense to do it based on odometer(too much hustle with creating test data!)
+    tripplanner = SLXTripPlanner(hass)
+    tripplanner.odometer_list = odometer_list_storage_test_merging[:8]
+    tripplanner.odometer_list = odometer_list_storage_test_merging
+    tripplanner._recalculate_odometer_index()
+    tripplanner._update_daily_histogram()
+    assert tripplanner.daily_histogram_last_date == date.fromisoformat("2024-01-29")
+    compare_histograms(histogram_test_merging2, tripplanner.daily_histogram)
+    tripplanner._run_predictor()
+    compare_predictor(predictor_test1_value, tripplanner.predictor_output)
+
+
+## more advanced predictor checks
+
+histogram_input_predictor_test2: list[list[float]] = [
+    [25.9, 28.1, 42.3, 52.8, 16.0, 20.2, 18],
+    [12.2, 31.8, 26.3, 5.8, 50.2, 1.9, 7.5],
+    [20.7, 10.8, 26.3, 0, 39.7, 20.8, 26.2],
+    [222.6, 0.0, 5.4, 13.6, 0.0, 8.3, 21.5],
+    [20.7, 59.7, 720.4, 52.4, 13.6, 9.6, 15.6],
+    [63.5, 35.2, 693.6, 55.3, 812.2, 10.6, 19.6],
+    [0.0, 0.0, 0.0, 0.0, 33.8, 606.9, 223.1],
+]
+
+predictor_test2_values: dict[date, list[float]] = {
+    date(2024, 7, 14): [223.1],
+    date(2024, 7, 15): [20.2],
+    date(2024, 7, 16): [7.5],
+    date(2024, 7, 17): [26.2],
+    date(2024, 7, 18): [8.3],
+    date(2024, 7, 19): [15.6],
+    date(2024, 7, 20): [55.3],
+}
+
+predictor_test3_values: dict[date, list[float]] = {
+    date(2024, 7, 14): [223.1],
+    date(2024, 7, 15): [20.2, 20.2],
+    date(2024, 7, 16): [7.5, 7.5],
+    date(2024, 7, 17): [26.2, 26.2],
+    date(2024, 7, 18): [8.3, 8.3],
+    date(2024, 7, 19): [15.6, 15.6],
+    date(2024, 7, 20): [55.3, 55.3],
+    date(2024, 7, 21): [223.1],
+}
+
+
+def test_predictor2(hass: HomeAssistant):
+    tripplanner = SLXTripPlanner(hass)
+    tripplanner.daily_histogram_last_date = date(2024, 7, 13)
+    tripplanner.daily_histogram = histogram_input_predictor_test2
+    tripplanner._run_predictor()
+    compare_predictor(predictor_test2_values, tripplanner.predictor_output)
+
+
+def test_predictor3(hass: HomeAssistant):
+    tripplanner = SLXTripPlanner(hass)
+    tripplanner.daily_histogram_last_date = date(2024, 7, 13)
+    tripplanner.daily_histogram = histogram_input_predictor_test2
+    tripplanner._run_predictor()
+    tripplanner.daily_histogram_last_date = date(2024, 7, 14)
+    tripplanner._run_predictor()
+    compare_predictor(predictor_test3_values, tripplanner.predictor_output)
