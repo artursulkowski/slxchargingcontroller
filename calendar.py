@@ -85,11 +85,38 @@ class SLXCalendarEntity(CalendarEntity):
         daily_trips = self._tripplanner.get_daily_trips(
             start_date.date(), end_date.date()
         )
+        # translate daily trips into dictionary - will be easier to combine it with predictor
 
+        daily_trips_dict: dict[date, float] = {}
         for trip_date, distance in daily_trips:
-            summary = f"Trip: {distance:.1f}km"
-            information_object = {"dailytrip": distance}
-            description = json.dumps(information_object)
-            ce = CalendarEvent(trip_date, trip_date, summary, description)
-            tmp_list.append(ce)
+            daily_trips_dict[trip_date] = distance
+
+        # go through dates and check if we have distance and prediction information available.
+        current_date = start_date.date()
+        while current_date <= end_date.date():
+            distance: float = None
+            if current_date in daily_trips_dict:
+                distance = daily_trips_dict[current_date]
+
+            prediction: list[float] = None
+            if current_date in self._tripplanner.predictor_output:
+                prediction = self._tripplanner.predictor_output[current_date]
+
+            if distance is not None or prediction is not None:
+                summary = ""
+                if distance is not None:
+                    summary += f"Trip: {distance:.1f}km"
+                if prediction is not None:
+                    summary += f"Prediction: {prediction[0]:.1f}km"
+                information_object = {}
+                if distance is not None:
+                    information_object["dailytrip"] = distance
+                if prediction is not None:
+                    information_object["prediction"] = prediction
+
+                description = json.dumps(information_object)
+                ce = CalendarEvent(current_date, current_date, summary, description)
+                tmp_list.append(ce)
+
+            current_date += timedelta(days=1)
         return tmp_list
