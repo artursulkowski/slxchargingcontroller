@@ -29,6 +29,17 @@ from .slxtripplanner import SLXTripPlanner
 _LOGGER = logging.getLogger(__name__)
 
 
+def round_floats(obj):
+    if isinstance(obj, float):
+        return round(obj, 2)  # Adjust the number of decimal places as needed
+    elif isinstance(obj, dict):
+        return {k: round_floats(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [round_floats(x) for x in obj]
+    else:
+        return obj
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -107,6 +118,8 @@ class SLXCalendarEntity(CalendarEntity):
                 if distance is not None:
                     summary += f"Trip: {distance:.1f}km"
                 if prediction is not None:
+                    if len(summary) > 0:
+                        summary += " "
                     summary += f"Prediction: {prediction[0]:.1f}km"
                 information_object = {}
                 if distance is not None:
@@ -114,7 +127,7 @@ class SLXCalendarEntity(CalendarEntity):
                 if prediction is not None:
                     information_object["prediction"] = prediction
 
-                description = json.dumps(information_object)
+                description = json.dumps(round_floats(information_object))
                 ce = CalendarEvent(current_date, current_date, summary, description)
                 tmp_list.append(ce)
 
