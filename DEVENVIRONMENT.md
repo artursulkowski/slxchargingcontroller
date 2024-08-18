@@ -31,11 +31,49 @@ git clone git@github.com:Hyundai-Kia-Connect/kia_uvo.git
 cp -r ./kia_uvo/custom_components/kia_uvo ./core/config/custom_components
  ```
 
-### Add slxcharging controller
+## Add slxcharging controller
 ```bash
 cd core/config/custom_components
 git clone git@github.com:artursulkowski/slxchargingcontroller.git
 ```
+
+### Running slxcharging controller tests
+Tests are run from `config/custom_components/slxchargingcontroller` using `pytest`
+
+Before run, you need to make few tweaks:
+
+**Add `__init__.py` into `custom_components` directory**
+```bash
+custom_components % cat __init__.py
+"""Placeholder for tests. """
+```
+
+**Add current directory as correct path for python modules**
+```diff
+diff --git a/pyproject.toml b/pyproject.toml
+index dc943b0832..20523a0bc1 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -435,6 +435,10 @@ max-line-length-suggestions = 72
+ [tool.pytest.ini_options]
+ testpaths = [
+     "tests",
+ ]
++
++pythonpath = [
++    ".",
++]
+
+```
+
+**Install manually pytest_homeassistant_custom_component**
+
+Note: this can be moved to requirements.txt
+``` bash
+pip install pytest_homeassistant_custom_component
+```
+
+Mark custom_components as a module for slxcharging controller tests - crea
 
 ## Efficient debugging
 ### Disable generating translation when running HA in debug mode
@@ -69,15 +107,6 @@ git clone git@github.com:artursulkowski/slxchargingcontroller.git
 +    },
 ```
 
-### (TO CHECK IF IT IS NEEDED)
-` tests/conftest.py`
-```diff
- def pytest_addoption(parser: pytest.Parser) -> None:
-     """Register custom pytest options."""
--    parser.addoption("--dburl", action="store", default="sqlite://")
-+    #parser.addoption("--dburl", action="store", default="sqlite://")
-
-```
 
 
 

@@ -1,6 +1,6 @@
 """Test the for the SLXChargingController coordinator."""
 
-from . import FIXTURE_CONFIG_ENTRY
+from custom_components.slxchargingcontroller.tests import FIXTURE_CONFIG_ENTRY
 from homeassistant.core import HomeAssistant
 from custom_components.slxchargingcontroller.chargingmanager import (
     SlxEnergyTracker,
@@ -31,13 +31,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 
-
-## TODO  - to fix - this is ugly workaround for including modules from core/tests. Probably could be solved by the propper configuration file.
-import sys
-
-sys.path.append("/workspaces/core/tests")
-from common import async_fire_time_changed
-## end of workaround
+from tests.common import async_fire_time_changed
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -240,12 +234,15 @@ async def test_requested_soc_timeouted(
     assert coordinator is not None
     soc_timeout = coordinator.car_config[SLXCar.CONF_SOC_REQUEST_TIMEOUT]
 
-    with patch(
-        "custom_components.slxchargingcontroller.slxcarmanual.SLXCarManual.request_soc_update",
-        return_value=True,
-    ) as car_mock, patch(
-        "custom_components.slxchargingcontroller.slxevsemanual.SLXManualEvse.set_charger_mode"
-    ) as evse_mock:
+    with (
+        patch(
+            "custom_components.slxchargingcontroller.slxcarmanual.SLXCarManual.request_soc_update",
+            return_value=True,
+        ) as car_mock,
+        patch(
+            "custom_components.slxchargingcontroller.slxevsemanual.SLXManualEvse.set_charger_mode"
+        ) as evse_mock,
+    ):
         entity_name_evse_plug: str = FIXTURE_CONFIG_ENTRY["options"][
             CONF_EVSE_PLUG_CONNECTED
         ]

@@ -8,7 +8,6 @@ import logging
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 from homeassistant.const import (
@@ -37,7 +36,6 @@ from custom_components.slxchargingcontroller.const import (
 )
 
 FIXTURE__DEFAULT_CONFIG_ENTRY = {
-    "entry_id": "1",
     "domain": DOMAIN,
     "title": "testinstance_slxchargingcontroller",
     "options": {
@@ -49,7 +47,6 @@ FIXTURE__DEFAULT_CONFIG_ENTRY = {
         CONF_EVSE_SESSION_ENERGY: "evsetest.energy",
         CONF_EVSE_PLUG_CONNECTED: "evsetest.plug",
     },
-    #    "source": config_entries.SOURCE_USER,
     "unique_id": f"{DOMAIN}-fdew",
 }
 
@@ -92,5 +89,5 @@ async def creation_of_coordinator(hass, params: any = None):
     config_entry.add_to_hass(hass)
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
-    coordinator_intance = hass.data[config_entry.domain][config_entry.unique_id]
-    return coordinator_intance
+    coordinator_instance = hass.data[config_entry.domain][config_entry.unique_id]
+    return coordinator_instance
