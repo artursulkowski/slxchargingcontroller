@@ -68,12 +68,14 @@ index dc943b0832..20523a0bc1 100644
 
 **Install manually pytest_homeassistant_custom_component**
 
-Note: this can be moved to requirements.txt
+Checkout [pytest- homeassistant-customer-component releas](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component/releases) matches your home assistant version.
 ``` bash
-pip install pytest_homeassistant_custom_component
+pip install pytest_homeassistant_custom_component==0.13.152
 ```
 
-Mark custom_components as a module for slxcharging controller tests - crea
+> [!TIP]
+> This can be moved to requirements.txt
+
 
 ## Efficient debugging
 ### Disable generating translation when running HA in debug mode
