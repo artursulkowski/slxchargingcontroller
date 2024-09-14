@@ -1,4 +1,4 @@
-""" module for coordinator"""
+"""module for coordinator"""
 
 from __future__ import annotations
 
@@ -461,6 +461,11 @@ class SLXChgCtrlUpdateCoordinator(DataUpdateCoordinator):
             return
         else:
             _LOGGER.info("Callback soc update time %s", value)
+
+        if self._received_soc_update is not None:
+            if value < self._received_soc_update:
+                _LOGGER.warning("Igore soc update time which is moving backwards")
+                return
 
         self._received_soc_update = value
         if self._delay_soc_update:
