@@ -1,4 +1,4 @@
-""" slxmodule for connecting with OpenEVSE"""
+"""slxmodule for connecting with OpenEVSE"""
 
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers import entity_registry, device_registry
@@ -32,13 +32,13 @@ from .const import (
 # entities we subscribe to
 WatchedEntities = {
     # type of value : entity_id
-    "sessionenergy": "sensor.{devicename}_usage_this_session",
+    "sessionenergy": "sensor.{devicename}_total_usage",
     "plug": "binary_sensor.{devicename}_vehicle_connected",
 }
 
 # entities we are taking value from
 GetEntities = {
-    "maxcurrent": "select.{devicename}_max_current",
+    "maxcurrent": "sensor.{devicename}_max_current",
     "divertactive": "binary_sensor.{devicename}_divert_active",
 }
 

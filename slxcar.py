@@ -1,4 +1,4 @@
-""" slxmodule for car's integration base class"""
+"""slxmodule for car's integration base class"""
 
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers import entity_registry, device_registry
@@ -130,7 +130,7 @@ class SLXCar:
         for device_id, ent_list in entity_list.items():
             device = deviceregistry.async_get(device_id)
             device_name = device.name
-            device_name_slugified = SLXCar._slugify_device_name(device_name)
+            device_name_slugified = SLXCar._slugify_device_name(device_name.split()[0])
 
             _LOGGER.warning(
                 "Found deviceID = %s, deviceName= %s", device_id, device_name

@@ -1,5 +1,4 @@
-""" slxmodule for connecting with Kia Uvo, Hyundai Bluelink"""
-
+"""slxmodule for connecting with Kia Uvo, Hyundai Bluelink"""
 
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers import entity_registry, device_registry
@@ -71,7 +70,7 @@ class SLXKiaHyundai(SLXCar):
         else:
             _LOGGER.error("Device %s not found", device_id)
             return False
-        self.slugified_name = SLXCar._slugify_device_name(self.device_name)
+        self.slugified_name = SLXCar._slugify_device_name(self.device_name.split()[0])
         _LOGGER.info("Found Kia/Hyundai device : device_name %s", self.device_name)
 
         self._subscribe_entity(
