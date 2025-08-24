@@ -1,4 +1,4 @@
-""" module for charing manager"""
+"""module for charing manager"""
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
@@ -374,6 +374,8 @@ class SLXChargingManager:
         self._attr_charging_session_duration = None
 
         self._energy_tracker.disconnect_plug()
+        if self._callback_energy_estimated is not None:
+            self._callback_energy_estimated(0)
 
     def request_bat_soc_update(self):
         """Requests now for Battery SOC update"""
